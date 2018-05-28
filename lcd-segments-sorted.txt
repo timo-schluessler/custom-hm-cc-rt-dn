@@ -1,0 +1,115 @@
+02 7 antenna
+11 4 auto
+06 2 battery
+04 3 boost
+09 6 c
+08 3 degree
+00 7 koffer
+06 3 locked
+08 0 manu
+07 7 moon
+01 3 start
+04 7 stop
+11 3 sun
+10 5 window
+
+13 4 wheel 0
+20 7 wheel 1
+11 7 wheel 2
+13 2 wheel ring
+
+20 3 monday
+20 2 tuesday
+20 1 wednesday
+20 0 thursday
+20 4 friday
+20 5 saturday
+20 6 sunday
+
+11 1 deg 1 dot
+00 6 deg 1 seg 1
+04 2 deg 1 seg 2
+00 5 deg 1 seg 3
+04 1 deg 1 seg 4
+07 6 deg 1 seg 5
+07 5 deg 1 seg 6
+11 2 deg 1 seg 7
+
+10 7 deg 2 dot
+00 4 deg 2 seg 1
+04 0 deg 2 seg 2
+00 3 deg 2 seg 3
+03 7 deg 2 seg 4
+07 4 deg 2 seg 5
+07 3 deg 2 seg 6
+11 0 deg 2 seg 7
+
+00 2 deg 3 seg 1
+03 6 deg 3 seg 2
+00 1 deg 3 seg 3
+03 5 deg 3 seg 4
+07 2 deg 3 seg 5
+07 1 deg 3 seg 6
+10 6 deg 3 seg 7
+
+14 3 hour 0
+16 3 hour 1
+18 3 hour 2
+18 2 hour 3
+16 2 hour 4
+14 2 hour 5
+14 1 hour 6
+16 1 hour 7
+18 1 hour 8
+18 0 hour 9
+16 0 hour 10
+14 0 hour 11
+14 4 hour 12
+16 4 hour 13
+16 4 hour 14
+18 5 hour 15
+16 5 hour 16
+14 5 hour 17
+14 6 hour 18
+16 6 hour 19
+18 6 hour 20
+18 7 hour 21
+16 7 hour 22
+02 6 hour 23
+14 7 hour axis
+
+12 0 time 0 dot
+01 2 time 1 seg 1
+04 6 time 1 seg 2
+01 4 time 1 seg 3
+05 0 time 1 seg 4
+08 2 time 1 seg 5
+08 4 time 1 seg 6
+11 6 time 1 seg 7
+
+10 4 time 2 colon
+13 6 time 2 dot
+01 1 time 2 seg 1
+04 5 time 2 seg 2
+00 0 time 2 seg 3
+03 4 time 2 seg 4
+08 1 time 2 seg 5
+07 0 time 2 seg 6
+11 5 time 2 seg 7
+
+03 3 time 3 seg 1
+06 7 time 3 seg 2
+03 2 time 3 seg 3
+06 6 time 3 seg 4
+10 3 time 3 seg 5
+10 2 time 3 seg 6
+13 7 time 3 seg 7
+
+03 1 time 4 seg 1
+06 5 time 4 seg 2
+03 0 time 4 seg 3
+06 4 time 4 seg 4
+10 1 time 4 seg 5
+10 0 time 4 seg 6
+13 5 time 4 seg 7
+
