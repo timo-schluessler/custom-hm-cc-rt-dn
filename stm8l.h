@@ -69,6 +69,8 @@
 #define CLK_ECKCR_LSERDY (1u<<3)
 
 #define CLK_PCKENR1_TIM2 (1u<<0)
+#define CLK_PCKENR1_SPI (1u<<4)
+
 #define CLK_PCKENR2_LCD (1u<<3)
 
 #define CLK_ICKCR_HSION (1u<<0)
@@ -249,3 +251,35 @@
 #define TIMx_SMCR_TS 4
 #define TIMx_SMCR_SMS 0
 #define TIMx_ETR_ETPS 4
+
+
+/* *** SPI *** */
+#define SPI1_CR1 (*(__IO uint8_t*)0x5200)
+#define SPI1_CR2 (*(__IO uint8_t*)0x5201)
+#define SPI1_ICR (*(__IO uint8_t*)0x5202)
+#define SPI1_SR (*(__IO uint8_t*)0x5203)
+#define SPI1_DR (*(__IO uint8_t*)0x5204)
+#define SPI1_CRCPR (*(__IO uint8_t*)0x5205)
+#define SPI1_RXCRCR (*(__IO uint8_t*)0x5206)
+#define SPI1_TXCRCR (*(__IO uint8_t*)0x5207)
+
+#define SPI_CR1_MSTR (1u<<2)
+#define SPI_CR1_BR (1u<<3)
+#define SPI_CR1_SPE (1u<<6)
+#define SPI_CR1_LSBFIRST (1u<<7)
+
+#define SPI_CR2_SSI (1u<<0)
+#define SPI_CR2_SSM (1u<<1)
+#define SPI_CR2_RXOnly (1u<<2)
+#define SPI_CR2_CRCNEXT (1u<<4)
+#define SPI_CR2_CRCEN (1u<<5)
+#define SPI_CR2_BDOE (1u<<6)
+#define SPI_CR2_BDM (1u<<7)
+
+#define SPI_SR_RXNE (1u<<0)
+#define SPI_SR_TXE (1u<<1)
+#define SPI_SR_WKUP (1u<<3)
+#define SPI_SR_CRCERR (1u<<4)
+#define SPI_SR_MODF (1u<<5)
+#define SPI_SR_OVR (1u<<6)
+#define SPI_SR_BSY (1u<<7)

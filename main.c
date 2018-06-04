@@ -16,19 +16,16 @@
 
 volatile uint8_t addr = 0;
 volatile uint8_t bit = 0;
-volatile uint16_t cur_tick;
+
+volatile uint8_t partnum;
+volatile uint8_t version;
 
 void lcd_test();
 void motor_test();
 
 //#define USE_LSE
 
-#define tick_elapsed(tick) (!((get_tick() - tick) & ((uint16_t)1<<15)))
-uint16_t get_tick()
-{
-	cur_tick = ((uint16_t)TIM2_CNTRH << 8) + TIM2_CNTRL;
-	return cur_tick;
-}
+#include "time.h"
 
 void main()
 {
@@ -45,6 +42,8 @@ void main()
 	
 	// stop HSI
 	CLK_ICKCR &= CLK_ICKCR_HSION;
+
+	// f_sysclk = 32768Hz
 #else
 	// clock divider to 128
 	CLK_CKDIVR = 0b111;
@@ -52,6 +51,7 @@ void main()
 	CLK_ECKCR |= CLK_ECKCR_LSEON;
 	while (!(CLK_ECKCR & CLK_ECKCR_LSERDY))
 		;
+	// f_sysclk = 16MHz / 128 = 125kHz
 #endif
 
 	// configure RTC clock
