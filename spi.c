@@ -10,6 +10,8 @@
 
 #define nSEL (1u<<3)
 #define MISO (1u<<7)
+#define SCLK (1u<<5)
+#define MOSI (1u<<6)
 #define select_cc() do { PB_ODR &= ~nSEL; } while(false)
 #define deselect_cc() do { PB_ODR |= nSEL; } while(false)
 #define wait_miso() while (PB_IDR & MISO);
@@ -24,12 +26,14 @@ extern volatile uint8_t version;
 
 void spi_init()
 {
-	PB_CR1 = nSEL; // push-pull
-	PB_DDR = nSEL; // output
+	PB_ODR &= ~SCLK;
+	PB_CR1 = nSEL | SCLK | MOSI; // push-pull
+	PB_DDR = nSEL | SCLK | MOSI; // output
 	deselect_cc();
 
-	SPI1_CR1 = 0*SPI_CR1_BR | SPI_CR1_MSTR; // f_sysclk / 2, master
+	CLK_PCKENR1 |= CLK_PCKENR1_SPI;
 	SPI1_CR2 = SPI_CR2_SSM | SPI_CR2_SSI; // software slave management: master
+	SPI1_CR1 = 0b111*SPI_CR1_BR | SPI_CR1_MSTR; // f_sysclk / 2, master
 
 	spi_enable();
 
@@ -40,10 +44,17 @@ void spi_init()
 	deselect_cc();
 	_delay_us(41);
 
+	strobe(CC1101_SRES);
+
+	test = read_reg(CC1101_MCSM0);
 	partnum = read_reg(CC1101_PARTNUM);
 	version = read_reg(CC1101_VERSION);
 
 	spi_disable();
+
+	if (partnum == 0 && version == 0 && status == 0)
+		while (1)
+			;
 }
 
 void spi_enable()
@@ -73,6 +84,7 @@ static void strobe(uint8_t cmd)
 	wait_miso();
 	status = send_byte(cmd);
 	deselect_cc();
+	_delay_us(1000);
 }
 
 static uint8_t read_reg(uint8_t addr)
@@ -80,10 +92,25 @@ static uint8_t read_reg(uint8_t addr)
 	uint8_t val;
 
 	select_cc();
+	_delay_us(1000);
+	_delay_us(1000);
+	_delay_us(1000);
+	_delay_us(1000);
+	_delay_us(1000);
+	_delay_us(1000);
+	_delay_us(1000);
+	_delay_us(1000);
+	_delay_us(1000);
 	wait_miso();
 	status = send_byte(addr | READ_BURST);
 	val = send_byte(0x0);
 	deselect_cc();
+	_delay_us(1000);
+	_delay_us(1000);
+	_delay_us(1000);
+	_delay_us(1000);
+	_delay_us(1000);
+	_delay_us(1000);
 
 	return val;
 }

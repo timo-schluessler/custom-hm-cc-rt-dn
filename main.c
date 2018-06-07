@@ -5,6 +5,8 @@
 #include "stm8l.h"
 
 #include "lcd.h"
+#include "spi.h"
+#include "delay.h"
 
 #define LEDS (1u<<7)
 
@@ -19,6 +21,7 @@ volatile uint8_t bit = 0;
 
 volatile uint8_t partnum;
 volatile uint8_t version;
+volatile uint8_t test;
 
 void lcd_test();
 void motor_test();
@@ -58,6 +61,7 @@ void main()
 	CLK_CRTCR = (0b1000<<CLK_CRTCR_RTCSEL); // use LSE as RTC clk source
 	while (CLK_CRTCR & CLK_CRTCR_RTCSWBSY) // wait for the switch to finish
 		;
+#if 1
 	CLK_PCKENR2 |= CLK_PCKENR2_LCD; // enable LCD clock
 	LCD_FRQ = (3<<4) | 0; // PS[3:0] = 3, DIV[3:0] = 0 -> clock divier = 128 -> f_LCD = 128Hz, f_frame = 32Hz.
 	LCD_CR1 = (0b11<<1) | 0; // 1/4 duty, 1/3 bias
@@ -71,6 +75,7 @@ void main()
 	LCD_CR4 = 0; // no duty8
 
 	LCD_CR3 |= LCD_CR3_LCDEN;
+#endif
 
 	// enable tick counter
 	CLK_PCKENR1 |= CLK_PCKENR1_TIM2;
@@ -91,6 +96,7 @@ void main()
 		PD_ODR = MOTOR_LEFT_HIGH | MOTOR_RIGHT_HIGH; // all BJTs off
 	}
 
+	spi_init();
 
 	while (true) {
 		lcd_test();
@@ -98,26 +104,31 @@ void main()
 	}
 }
 
+#include "spi.c"
 
-uint16_t timeout_lcd = 0;
-uint8_t value = 0;
-uint8_t last_value = 0;
+typedef struct {
+	uint16_t timeout_lcd;
+	uint8_t value;
+	uint8_t last_value;
+} lcd_t;
+lcd_t lcd_data = { 0 };
+
 void lcd_test()
 {
 	//if (tick_elapsed(timeout_lcd)) {
 		//timeout_lcd += 1024;
-	if (value != last_value) {
+	if (lcd_data.value != lcd_data.last_value) {
 
 		lcd_sync();
-		lcd_set_digit(LCD_DEG_1, value);
-		lcd_set_digit(LCD_DEG_2, value);
-		lcd_set_digit(LCD_DEG_3, value);
+		lcd_set_digit(LCD_DEG_1, lcd_data.value);
+		lcd_set_digit(LCD_DEG_2, lcd_data.value);
+		lcd_set_digit(LCD_DEG_3, lcd_data.value);
 
-		lcd_set_digit(LCD_TIME_1, value);
-		lcd_set_digit(LCD_TIME_2, value);
-		lcd_set_digit(LCD_TIME_3, value);
-		lcd_set_digit(LCD_TIME_4, value);
-		last_value = value;
+		lcd_set_digit(LCD_TIME_1, lcd_data.value);
+		lcd_set_digit(LCD_TIME_2, lcd_data.value);
+		lcd_set_digit(LCD_TIME_3, lcd_data.value);
+		lcd_set_digit(LCD_TIME_4, lcd_data.value);
+		lcd_data.last_value = lcd_data.value;
 		//if (++value == 0x10)
 		//	value = 0;
 	}
@@ -147,9 +158,10 @@ void set_motor(int8_t left, int8_t right)
 	PD_ODR = odr;
 }
 
-	uint16_t timeout = 1024;
-	enum { Stop, Turn, CrossOver, Recirculate } state = Stop;
-	bool dir = false;
+uint16_t timeout = 1024;
+enum { Stop, Turn, CrossOver, Recirculate } state = Stop;
+bool dir = false;
+
 void motor_test()
 {
 
@@ -160,9 +172,9 @@ void motor_test()
 		state = Turn;
 		timeout += 5 * 1024;
 		if (dir)
-			set_motor(HIGH, LOW);
+			;//set_motor(HIGH, LOW);
 		else
-			set_motor(LOW, HIGH);
+			;//set_motor(LOW, HIGH);
 	}
 	else if (state == Turn) {
 		state = CrossOver;
@@ -189,5 +201,5 @@ void motor_test()
 		timeout += 10; // 10ms before turning on again
 #endif
 	}
-	value = state;
+	lcd_data.value = state;
 }
