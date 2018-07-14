@@ -25,6 +25,7 @@ volatile uint8_t test;
 
 void lcd_test();
 void motor_test();
+void spi_poll();
 
 //#define USE_LSE
 
@@ -49,7 +50,7 @@ void main()
 	// f_sysclk = 32768Hz
 #else
 	// clock divider to 128
-	CLK_CKDIVR = 0b111;
+	//CLK_CKDIVR = 0b111; // TODO for test only
 	// enable low speed external manually (it's needed for RTC clk which is needed for LCD clk)
 	CLK_ECKCR |= CLK_ECKCR_LSEON;
 	while (!(CLK_ECKCR & CLK_ECKCR_LSERDY))
@@ -100,11 +101,10 @@ void main()
 
 	while (true) {
 		lcd_test();
-		motor_test();
+		//motor_test();
+		spi_poll();
 	}
 }
-
-#include "spi.c"
 
 typedef struct {
 	uint16_t timeout_lcd;
@@ -112,6 +112,8 @@ typedef struct {
 	uint8_t last_value;
 } lcd_t;
 lcd_t lcd_data = { 0 };
+
+#include "spi.c"
 
 void lcd_test()
 {
