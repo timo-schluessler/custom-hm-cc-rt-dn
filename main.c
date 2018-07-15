@@ -5,7 +5,7 @@
 #include "stm8l.h"
 
 #include "lcd.h"
-#include "spi.h"
+#include "radio.h"
 #include "delay.h"
 
 #define LEDS (1u<<7)
@@ -25,7 +25,6 @@ volatile uint8_t test;
 
 void lcd_test();
 void motor_test();
-void spi_poll();
 
 //#define USE_LSE
 
@@ -97,12 +96,12 @@ void main()
 		PD_ODR = MOTOR_LEFT_HIGH | MOTOR_RIGHT_HIGH; // all BJTs off
 	}
 
-	spi_init();
+	radio_init();
 
 	while (true) {
 		lcd_test();
 		//motor_test();
-		spi_poll();
+		radio_poll();
 	}
 }
 
@@ -113,7 +112,7 @@ typedef struct {
 } lcd_t;
 lcd_t lcd_data = { 0 };
 
-#include "spi.c"
+#include "si4430.c"
 
 void lcd_test()
 {
