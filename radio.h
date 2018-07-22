@@ -5,7 +5,12 @@
 
 void radio_init();
 void radio_poll();
+
 void radio_enter_receive(uint8_t max_length);
+bool radio_received();
 bool radio_receive(as_packet_t * pkg, uint8_t max_length);
+
+void radio_send(as_packet_t * pkg);
+bool radio_sent();
 
 #endif

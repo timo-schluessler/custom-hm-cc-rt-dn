@@ -105,6 +105,32 @@ void white(uint8_t len, uint8_t * data)
 	data[0] ^= pn9[0];
 }
 
+// TODO move this to RAM to further reduce current consumption
+static bool wait_int(uint32_t timeout)
+{
+	WFE_CR1 = WFE_CR1_TIM2_EV; // timer 2 
+	WFE_CR2 = WFE_CR2_EVB_G | WFE_CR2_EXTI_EV4; // nIQR is PB4
+
+	wfe();
+}
+
+static uint8_t read_status()
+{
+	if (!read_int()) {
+		uint8_t status1 = read_reg(SI4430_STATUS1);
+		uint8_t status2 = read_reg(SI4430_STATUS2);
+#ifdef DEBUG_STATI
+		stati[stati_in].status1 = status1;
+		stati[stati_in].status2 = status2;
+		if (++stati_in == sizeof(stati) / sizeof(status_t))
+			stati_in = 0;
+		lcd_data.value = stati_in & 0xf;
+#endif
+		return status1;
+	}
+	return 0;
+}
+
 void radio_enter_receive(uint8_t max_length)
 {
 	write_reg(SI4430_OMFC2, SI4430_FFCLRRX | SI4430_FFCLRTX); // clear fifos
@@ -115,6 +141,10 @@ void radio_enter_receive(uint8_t max_length)
 }
 
 #include "crc16.c"
+bool radio_received()
+{
+	return read_status() & SI4430_PKGVALID;
+}
 
 bool radio_receive(as_packet_t * pkg, uint8_t max_length)
 {
@@ -129,54 +159,54 @@ bool radio_receive(as_packet_t * pkg, uint8_t max_length)
 	return true;
 }
 
-uint8_t pkg_len;
-volatile as_packet_t packet;
+void radio_send(as_packet_t * pkg)
+{
+	uint16_t crc;
 
-volatile uint8_t testpkg[] = { 0x0, 0x08, 0x90, 0x11, 0x2e, 0x16, 0x6e, 0x0F, 0x4D, 0x55, 0x02, 0x01, 0xC8, 0x00, 0x00, 0x00, 0x00 };
+	encode(pkg->length, pkg->data + 1);
+	crc = crc16(0xffff, pkg->length + 1, pkg->data);
+	pkg->data[pkg->length + 1] = crc >> 8;
+	pkg->data[pkg->length + 2] = crc & 0xff;
+#if 1 // this is only to test this function! remove it once it worked once! TODO
+	crc = crc16(0xffff, pkg->length + 3, pkg->data);
+	if (crc != 0)
+		__asm__ ("break");
+#endif
+	white(pkg->length + 3, pkg->data); // 1 byte length + 2 byte crc
+
+	write_reg(SI4430_OMFC2, SI4430_FFCLRRX | SI4430_FFCLRTX); // clear fifos
+	write_reg(SI4430_OMFC2, 0);
+	write_reg(SI4430_PKLEN, pkg->length + 3);
+	write_burst(SI4430_FIFO, pkg->length + 3, pkg->data);
+	write_reg(SI4430_OMFC1, SI4430_TXON); // enter transmit mode
+
+#if 0
+	white(pkg_len, testpkg);
+	crc = crc16(0xffff, pkg_len, testpkg);
+	decode(pkg_len - 3, testpkg + 1);
+#endif
+}
+
+bool radio_sent()
+{
+	return read_status() & SI4430_PKGSENT;
+}
+
+
+volatile as_packet_t packet;
+volatile as_packet_t testpkg = { .data = { 14, 0x08, 0x90, 0x11, 0x2e, 0x16, 0x6e, 0x0F, 0x4D, 0x55, 0x02, 0x01, 0xC8, 0x00, 0x00 } };
+
 void radio_poll()
 {
-	if (!read_int()) {
-		uint8_t status1 = read_reg(SI4430_STATUS1);
-		uint8_t status2 = read_reg(SI4430_STATUS2);
-#ifdef DEBUG_STATI
-		stati[stati_in].status1 = status1;
-		stati[stati_in].status2 = status2;
-		if (++stati_in == sizeof(stati) / sizeof(status_t))
-			stati_in = 0;
-		lcd_data.value = stati_in & 0xf;
-#endif
-		if (status1 & SI4430_PKGVALID) {
-			uint16_t crc;
-			if (!radio_receive(&packet, 14))
-				__asm__ ("break");
+	if (radio_received()) {
+		if (!radio_receive(&packet, 14))
+			__asm__ ("break");
 
-			pkg_len = sizeof(testpkg);
-			testpkg[0] = pkg_len - 3;
-			testpkg[1] = packet.counter; // answer with same seq-id
-			encode(pkg_len - 3, testpkg + 1);
-			crc = crc16(0xffff, pkg_len - 2, testpkg);
-			testpkg[pkg_len - 2] = crc >> 8;
-			testpkg[pkg_len - 1] = crc & 0xff;
-			crc = crc16(0xffff, pkg_len, testpkg);
-			if (crc != 0)
-				__asm__ ("break");
-			white(pkg_len, testpkg);
-
-			write_reg(SI4430_OMFC2, SI4430_FFCLRRX | SI4430_FFCLRTX); // clear fifos
-			write_reg(SI4430_OMFC2, 0);
-			write_reg(SI4430_PKLEN, pkg_len);
-			write_burst(SI4430_FIFO, pkg_len, testpkg);
-			write_reg(SI4430_OMFC1, SI4430_TXON); // enter transmit mode
-
-			white(pkg_len, testpkg);
-			crc = crc16(0xffff, pkg_len, testpkg);
-			decode(pkg_len - 3, testpkg + 1);
-
-			//__asm__("break");
-		}
-		else if (status1 & SI4430_PKGSENT)
-			radio_enter_receive(14);
+		testpkg.counter = packet.counter; // answer with same seq-id
+		radio_send(&testpkg);
 	}
+	else if (radio_sent())
+		radio_enter_receive(14);
 }
 
 static void strobe(uint8_t cmd)

@@ -44,6 +44,30 @@
 #define PF_CR1 *(__IO uint8_t*)0x501C
 #define PF_CR2 *(__IO uint8_t*)0x501D
 
+/* wait for event */
+#define WFE_CR1 *(__IO uint8_t*)0x50A6
+#define WFE_CR2 *(__IO uint8_t*)0x50A7
+#define WFE_CR3 *(__IO uint8_t*)0x50A8
+#define WFE_CR4 *(__IO uint8_t*)0x50A9
+
+#define WFE_CR1_EXTI_EV3 (1u<<7)
+#define WFE_CR1_EXTI_EV2 (1u<<6)
+#define WFE_CR1_EXTI_EV1 (1u<<5)
+#define WFE_CR1_EXTI_EV0 (1u<<4)
+#define WFE_CR1_TIM1_EV1 (1u<<3)
+#define WFE_CR1_TIM1_EV0 (1u<<2)
+#define WFE_CR1_TIM2_EV1 (1u<<1)
+#define WFE_CR1_TIM2_EV0 (1u<<0)
+
+#define WFE_CR2_ADC1_COMP_EV (1u<<7)
+#define WFE_CR2_EXTI_EVE_F (1u<<6)
+#define WFE_CR2_EXTI_EVD_H (1u<<5)
+#define WFE_CR2_EXTI_EVB_G (1u<<4)
+#define WFE_CR2_EXTI_EV7 (1u<<3)
+#define WFE_CR2_EXTI_EV6 (1u<<2)
+#define WFE_CR2_EXTI_EV5 (1u<<1)
+#define WFE_CR2_EXTI_EV4 (1u<<0)
+
 /* CLOCK */
 #define CLK_CKDIVR	(*(__IO uint8_t*)0x50C0)
 #define CLK_CRTCR	(*(__IO uint8_t*)0x50C1)
