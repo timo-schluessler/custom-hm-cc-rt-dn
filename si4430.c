@@ -106,12 +106,22 @@ void white(uint8_t len, uint8_t * data)
 }
 
 // TODO move this to RAM to further reduce current consumption
-static bool wait_int(uint32_t timeout)
+static bool wait_int(uint16_t timeout)
 {
-	WFE_CR1 = WFE_CR1_TIM2_EV; // timer 2 
-	WFE_CR2 = WFE_CR2_EVB_G | WFE_CR2_EXTI_EV4; // nIQR is PB4
+	// TODO only do this once?
+	WFE_CR1 = WFE_CR1_TIM2_EV1; // timer 2 capture and compare events
+	WFE_CR2 = WFE_CR2_EXTI_EV4; // nIQR is PB4 which is by default mapped to EXTI4
+
+	set_timeout(timeout);
+	PB_CR2 |= (1u<<4); // PB4 external interrupt enabled
+	EXTI_SR1 = EXTI_SR1_P4F; // reset external interrupt port 4
 
 	wfe();
+
+	//clear_timeout(); // i think we don't need this? TODO when leaving e.g. the bootloader this should be reset
+	// TODO we don't have to reset anything else as long as the WFE flags stay enabled. they will prevent any real interrupt
+
+	return !read_int();
 }
 
 static uint8_t read_status()

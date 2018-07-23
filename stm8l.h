@@ -44,6 +44,20 @@
 #define PF_CR1 *(__IO uint8_t*)0x501C
 #define PF_CR2 *(__IO uint8_t*)0x501D
 
+/* external interrupt */
+
+#define EXTI_CR1 *(__IO uint8_t*)0x50A0
+#define EXTI_CR2 *(__IO uint8_t*)0x50A1
+#define EXTI_CR3 *(__IO uint8_t*)0x50A2
+#define EXTI_SR1 *(__IO uint8_t*)0x50A3
+#define EXTI_SR2 *(__IO uint8_t*)0x50A4
+#define EXTI_CONF1 *(__IO uint8_t*)0x50A5
+
+#define EXTI_CR4 *(__IO uint8_t*)0x50AA
+#define EXTI_CONF2 *(__IO uint8_t*)0x50AB
+
+#define EXTI_SR1_P4F (1u<<4)
+
 /* wait for event */
 #define WFE_CR1 *(__IO uint8_t*)0x50A6
 #define WFE_CR2 *(__IO uint8_t*)0x50A7
@@ -67,6 +81,8 @@
 #define WFE_CR2_EXTI_EV6 (1u<<2)
 #define WFE_CR2_EXTI_EV5 (1u<<1)
 #define WFE_CR2_EXTI_EV4 (1u<<0)
+
+#define wfe() __asm__("wfe")
 
 /* CLOCK */
 #define CLK_CKDIVR	(*(__IO uint8_t*)0x50C0)
@@ -243,7 +259,7 @@
 #define TIM_SR1_CC4IF (1 << 4)
 #define TIM_SR1_CC3IF (1 << 3)
 #define TIM_SR1_CC2IF (1 << 2)
-#define TIM_SR1_CC1IF (1 << 1)
+#define TIM_SR1_CC1IF (1u << 1)
 #define TIM_SR1_UIF (1 << 0)
 
 
@@ -275,6 +291,9 @@
 #define TIMx_SMCR_TS 4
 #define TIMx_SMCR_SMS 0
 #define TIMx_ETR_ETPS 4
+#define TIMx_IER_CC2IE (1u<<2)
+#define TIMx_IER_CC1IE (1u<<1)
+#define TIMx_SR1_CC1IF (1u<<1)
 
 
 /* *** SPI *** */
