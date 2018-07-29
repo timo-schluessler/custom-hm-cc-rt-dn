@@ -2,6 +2,18 @@
 
 #include "stm8l.h"
 
+void tick_init()
+{
+	// enable tick counter
+	CLK_PCKENR1 |= CLK_PCKENR1_TIM2;
+	SYSCFG_RMPCR2 |= SYSCFG_RMPCR2_TIM2TRIGLSE_REMAP; // remap LSE to tim2 trigger input
+	TIM2_SMCR = (0b111<<TIMx_SMCR_TS) | (0b111<<TIMx_SMCR_SMS); // external clock mode 1
+	TIM2_ETR = (0b11<<TIMx_ETR_ETPS); // etr prescaler = 8
+	TIM2_PSCR = 2; // prescale by 2^2 = 4. one tick is 1/1024s
+	TIM2_EGR = 1; // force update to make all changes take effect immediately
+	TIM2_CR1 = TIMx_CR1_CEN;
+}
+
 uint16_t get_tick()
 {
 	uint16_t cur_tick = ((uint16_t)TIM2_CNTRH << 8) + TIM2_CNTRL;

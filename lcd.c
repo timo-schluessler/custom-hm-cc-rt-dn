@@ -6,6 +6,24 @@
 
 #include <stdbool.h>
 
+void lcd_init()
+{
+	CLK_PCKENR2 |= CLK_PCKENR2_LCD; // enable LCD clock
+	LCD_FRQ = (3<<4) | 0; // PS[3:0] = 3, DIV[3:0] = 0 -> clock divier = 128 -> f_LCD = 128Hz, f_frame = 32Hz.
+	LCD_CR1 = (0b11<<1) | 0; // 1/4 duty, 1/3 bias
+	LCD_CR2 = (0b000<<5) | (0<<4) | (0b000<<1) | (0<<0); // PON = 0, HD = 0, CC = 0, VSEL = 0
+	LCD_CR3 = (0b000<<0); // DEAD = 0
+	LCD_PM0 = 0b11111111; // use segments 00 - 07
+	LCD_PM1 = 0b00011111; // use segments 08 - 12
+	LCD_PM2 = 0b11000000; // use segments 22 - 23
+	LCD_PM3 = 0b11111111; // use segments 24 - 31
+	LCD_PM4 = 0b00001111; // use segments 32 - 35 (36 - 39 is in fact COM4 - COM7 which are GPIOs)
+	LCD_CR4 = 0; // no duty8
+
+	LCD_CR3 |= LCD_CR3_LCDEN;
+}
+
+
 const uint8_t lcd_digits[] = {
 	LCD_SEG_DEG_1_SEG_1,
 	LCD_SEG_DEG_1_SEG_2,
