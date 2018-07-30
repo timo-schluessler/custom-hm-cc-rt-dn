@@ -26,6 +26,8 @@ static uint8_t status;
 
 #include "as.c"
 
+#define DEBUG_STATI
+
 #ifdef DEBUG_STATI
 typedef struct {
 	uint8_t status1;
@@ -34,6 +36,8 @@ typedef struct {
 status_t stati[50] = { { 0 } };
 uint8_t stati_in = 0;
 #endif
+
+static enum { radio_idle, radio_receiving, radio_sending } radio_state;
 
 void radio_init()
 {
@@ -80,6 +84,7 @@ void radio_init()
 	write_reg(SI4430_INT1, SI4430_PKGVALID | SI4430_PKGSENT); // enable pkg valid/sent interrupt
 	//write_reg(SI4430_INT2, SI4430_SWDET | SI4430_PREAVAL | SI4430_RSSI | SI4430_CHIPRDY); // enable sync word detect interrupt
 
+	radio_state = radio_idle;
 	radio_enter_receive(14);
 }
 
@@ -147,24 +152,26 @@ void radio_enter_receive(uint8_t max_length)
 	write_reg(SI4430_OMFC2, 0);
 	write_reg(SI4430_PKLEN, max_length + 3);
 	write_reg(SI4430_OMFC1, SI4430_RXON); // enter receive mode
-	// TODO enable events for counter/timeout and nIRQ pin change -> then WFE
+	radio_state = radio_receiving;
 }
 
 #include "crc16.c"
 bool radio_received()
 {
+	if (radio_state != radio_receiving)
+		return false;
 	return read_status() & SI4430_PKGVALID;
 }
 
 bool radio_receive(as_packet_t * pkg, uint8_t max_length)
 {
-	read_burst(SI4430_FIFO, max_length, pkg->data);
-	white(max_length, pkg->data);
-	if (pkg->length + 3 < max_length) // avoid accessing invalid memory (3 = 1 byte length + 2 byte crc)
-		max_length = pkg->length + 3;
-	if (crc16(0xffff, max_length, pkg->data) != 0)
+	read_burst(SI4430_FIFO, max_length + 3, pkg->data); // 3 = 1 byte length + 2 byte crc
+	white(max_length + 3, pkg->data);
+	if (pkg->length < max_length) // avoid accessing invalid memory
+		max_length = pkg->length;
+	if (crc16(0xffff, max_length + 3, pkg->data) != 0)
 		return false;
-	decode(max_length - 3, pkg->data + 1);
+	decode(max_length, pkg->data + 1);
 
 	return true;
 }
@@ -172,33 +179,36 @@ bool radio_receive(as_packet_t * pkg, uint8_t max_length)
 void radio_send(as_packet_t * pkg)
 {
 	uint16_t crc;
+	uint8_t length = pkg->length; // the whitening changes pkg->length, so we use a local copy
 
-	encode(pkg->length, pkg->data + 1);
-	crc = crc16(0xffff, pkg->length + 1, pkg->data);
-	pkg->data[pkg->length + 1] = crc >> 8;
-	pkg->data[pkg->length + 2] = crc & 0xff;
+	encode(length, pkg->data + 1);
+	crc = crc16(0xffff, length + 1, pkg->data);
+	pkg->data[length + 1] = crc >> 8;
+	pkg->data[length + 2] = crc & 0xff;
 #if 1 // this is only to test this function! remove it once it worked once! TODO
-	crc = crc16(0xffff, pkg->length + 3, pkg->data);
+	crc = crc16(0xffff, length + 3, pkg->data);
 	if (crc != 0)
 		__asm__ ("break");
 #endif
-	white(pkg->length + 3, pkg->data); // 1 byte length + 2 byte crc
+	white(length + 3, pkg->data); // 1 byte length + 2 byte crc
 
 	write_reg(SI4430_OMFC2, SI4430_FFCLRRX | SI4430_FFCLRTX); // clear fifos
 	write_reg(SI4430_OMFC2, 0);
-	write_reg(SI4430_PKLEN, pkg->length + 3);
-	write_burst(SI4430_FIFO, pkg->length + 3, pkg->data);
+	write_reg(SI4430_PKLEN, length + 3);
+	write_burst(SI4430_FIFO, length + 3, pkg->data);
 	write_reg(SI4430_OMFC1, SI4430_TXON); // enter transmit mode
 
-#if 0
-	white(pkg_len, testpkg);
-	crc = crc16(0xffff, pkg_len, testpkg);
-	decode(pkg_len - 3, testpkg + 1);
-#endif
+	// undo any changes made to pkg
+	white(length + 3, pkg->data);
+	decode(length, pkg->data + 1);
+
+	radio_state = radio_sending;
 }
 
 bool radio_sent()
 {
+	if (radio_state != radio_sending)
+		return false;
 	return read_status() & SI4430_PKGSENT;
 }
 
@@ -208,6 +218,12 @@ volatile as_packet_t testpkg = { .data = { 14, 0x08, 0x90, 0x11, 0x2e, 0x16, 0x6
 
 void radio_poll()
 {
+	if (!wait_int(5000)) {
+		if (++stati_in == sizeof(stati) / sizeof(status_t))
+			stati_in = 0;
+		lcd_data.value = stati_in & 0xf;
+	}
+
 	if (radio_received()) {
 		if (!radio_receive(&packet, 14))
 			__asm__ ("break");

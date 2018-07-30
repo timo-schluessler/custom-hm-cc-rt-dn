@@ -27,7 +27,7 @@ void set_timeout(uint16_t timeout)
 
 	TIM2_CCR1H = now >> 8; // set new capture compare value
 	TIM2_CCR1L = now & 0xff;
-	TIM2_SR1 = ~TIMx_SR1_CC1IF; // reset capture compare flag
+	TIM2_SR1 = (uint8_t)(~((uint8_t)TIMx_SR1_CC1IF)); // reset capture compare flag
 	TIM2_IER = TIMx_IER_CC1IE; // enable interrupt
 }
 
