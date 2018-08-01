@@ -16,13 +16,6 @@
 #define MOTOR_RIGHT_LOW (1u<<7) // PD7
 #define MOTORS_MASK (MOTOR_LEFT_HIGH | MOTOR_LEFT_LOW | MOTOR_RIGHT_HIGH | MOTOR_RIGHT_LOW)
 
-volatile uint8_t addr = 0;
-volatile uint8_t bit = 0;
-
-volatile uint8_t partnum;
-volatile uint8_t version;
-volatile uint8_t test;
-
 void lcd_test();
 void motor_test();
 
@@ -64,7 +57,7 @@ void main()
 
 	lcd_init();
 	tick_init();
-	
+
 	PF_CR1 = LEDS; // push-pull
 	PF_DDR = LEDS; // output
 	//PF_ODR |= LEDS; // enable backlight
@@ -76,6 +69,7 @@ void main()
 	}
 
 	radio_init();
+	radio_enter_receive(14);
 
 	while (true) {
 		lcd_test();

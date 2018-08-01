@@ -37,6 +37,9 @@ status_t stati[50] = { { 0 } };
 uint8_t stati_in = 0;
 #endif
 
+volatile uint8_t partnum;
+volatile uint8_t version;
+
 static enum { radio_idle, radio_receiving, radio_sending } radio_state;
 
 void radio_init()
@@ -85,7 +88,7 @@ void radio_init()
 	//write_reg(SI4430_INT2, SI4430_SWDET | SI4430_PREAVAL | SI4430_RSSI | SI4430_CHIPRDY); // enable sync word detect interrupt
 
 	radio_state = radio_idle;
-	radio_enter_receive(14);
+	write_reg(SI4430_OMFC1, 0); // goto idle mode
 }
 
 void radio_switch_100k()
@@ -102,7 +105,7 @@ void radio_switch_100k()
 
 void white(uint8_t len, uint8_t * data)
 {
-	const uint8_t pn9[] = { 0xff, 0xe1, 0x1d, 0x9a, 0xed, 0x85, 0x33, 0x24, 0xea, 0x7a, 0xd2, 0x39, 0x70, 0x97, 0x57, 0x0a, 0x54, 0x7d, 0x2d };
+	const uint8_t pn9[] = { 0xff, 0xe1, 0x1d, 0x9a, 0xed, 0x85, 0x33, 0x24, 0xea, 0x7a, 0xd2, 0x39, 0x70, 0x97, 0x57, 0x0a, 0x54, 0x7d, 0x2d, 0xd8, 0x6d, 0x0d, 0xba, 0x8f, 0x67, 0x59, 0xc7 };
 	if (len > sizeof(pn9))
 		__asm__ ("break");
 	for (uint8_t i = len - 1; i != 0; i--)
@@ -111,22 +114,41 @@ void white(uint8_t len, uint8_t * data)
 }
 
 // TODO move this to RAM to further reduce current consumption
-static bool wait_int(uint16_t timeout)
+static bool wait_int(uint16_t timeout_at)
 {
 	// TODO only do this once?
 	WFE_CR1 = WFE_CR1_TIM2_EV1; // timer 2 capture and compare events
 	WFE_CR2 = WFE_CR2_EXTI_EV4; // nIQR is PB4 which is by default mapped to EXTI4
 
-	set_timeout(timeout);
-	PB_CR2 |= (1u<<4); // PB4 external interrupt enabled
-	EXTI_SR1 = EXTI_SR1_P4F; // reset external interrupt port 4
+	//if (!tick_elapsed(timeout_at - 1)) { // -1 for safety: i don't know if set_timeout() timesout if timeout_at is already reached!
+		PB_CR2 |= (1u<<4); // PB4 external interrupt enabled
+		EXTI_SR1 = EXTI_SR1_P4F; // reset external interrupt port 4
+		set_timeout(timeout_at);
 
-	wfe();
+		wfe();
+	//}
 
 	//clear_timeout(); // i think we don't need this? TODO when leaving e.g. the bootloader this should be reset
 	// TODO we don't have to reset anything else as long as the WFE flags stay enabled. they will prevent any real interrupt
 
 	return !read_int();
+}
+
+// wait for either packet reception or packet sent ... but for at most until timeout_at
+// returns true if operation was successfull, false on timeout
+bool radio_wait(uint16_t timeout_at)
+{
+	while (true) {
+		if (!wait_int(timeout_at)) {
+			write_reg(SI4430_OMFC1, 0); // goto idle mode
+			return false;
+		}
+		if (radio_state == radio_sending) {
+			if (radio_sent())
+				return true;
+		} else if (radio_received())
+			return true;
+	}
 }
 
 static uint8_t read_status()
@@ -139,7 +161,9 @@ static uint8_t read_status()
 		stati[stati_in].status2 = status2;
 		if (++stati_in == sizeof(stati) / sizeof(status_t))
 			stati_in = 0;
+#ifdef LCD_INCLUDED
 		lcd_data.value = stati_in & 0xf;
+#endif
 #endif
 		return status1;
 	}
@@ -160,7 +184,11 @@ bool radio_received()
 {
 	if (radio_state != radio_receiving)
 		return false;
-	return read_status() & SI4430_PKGVALID;
+	if (read_status() & SI4430_PKGVALID) {
+		radio_state = radio_idle;
+		return true;
+	}
+	return false;
 }
 
 bool radio_receive(as_packet_t * pkg, uint8_t max_length)
@@ -209,7 +237,11 @@ bool radio_sent()
 {
 	if (radio_state != radio_sending)
 		return false;
-	return read_status() & SI4430_PKGSENT;
+	if (read_status() & SI4430_PKGSENT) {
+		radio_state = radio_idle;
+		return true;
+	}
+	return false;
 }
 
 
@@ -218,10 +250,12 @@ volatile as_packet_t testpkg = { .data = { 14, 0x08, 0x90, 0x11, 0x2e, 0x16, 0x6
 
 void radio_poll()
 {
-	if (!wait_int(5000)) {
+	if (!wait_int(get_tick() + 5000)) {
 		if (++stati_in == sizeof(stati) / sizeof(status_t))
 			stati_in = 0;
+#ifdef LCD_INCLUDED
 		lcd_data.value = stati_in & 0xf;
+#endif
 	}
 
 	if (radio_received()) {
