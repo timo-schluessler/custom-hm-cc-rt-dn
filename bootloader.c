@@ -1,11 +1,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define MAX_PAYLOAD 37
+
 #include "stm8l.h"
 #include "radio.h"
 
 #include "time.c"
-
+ 
 #include "si4430.c"
 
 
@@ -16,6 +18,7 @@
 
 void send_response(as_packet_t * recvd, bool ack);
 bool receive_cb();
+bool receive_block(uint16_t timeout_at, uint8_t expected_counter);
 
 const uint8_t hm_id[] = { 0x9a, 0x45, 0xa0 };
 const uint8_t hm_serial[] = { 'M','Y','H','M','C','C','R','T','D','N' };
@@ -24,6 +27,10 @@ const uint8_t hm_serial[] = { 'M','Y','H','M','C','C','R','T','D','N' };
 #define LIST_ID(a) (a)[0], (a)[1], (a)[2]
 
 #include "lcd.c"
+
+#define BLOCK_COUNT 234
+#define BLOCKSIZE 290 //128
+uint8_t buf[BLOCKSIZE];
 
 void main()
 {
@@ -52,7 +59,7 @@ void main()
 	// f_sysclk = 16MHz / 128 = 125kHz
 #endif
 
-#if 0 // TODO not needed?
+#if 1 // TODO not needed?
 	// configure RTC clock
 	CLK_CRTCR = (0b1000<<CLK_CRTCR_RTCSEL); // use LSE as RTC clk source
 	while (CLK_CRTCR & CLK_CRTCR_RTCSWBSY) // wait for the switch to finish
@@ -78,34 +85,48 @@ void main()
 #endif
 
 	lcd_sync();
-	lcd_set_digit(read_int() ? LCD_DEG_1 : LCD_DEG_2, 0);
-	lcd_set_digit(LCD_DEG_3, stati_in);
+	lcd_set_digit(LCD_DEG_1, 0);
 
-	{
-		bool a = radio_wait(get_tick() + 5000);
-
-		lcd_sync();
-		lcd_set_digit(read_int() ? LCD_DEG_1 : LCD_DEG_2, 1);
-	}
-
-	radio_wait(get_tick() + 5000);
-
-	lcd_sync();
-	lcd_set_digit(LCD_DEG_1, 2);
 	if (!receive_cb())
 		__asm__("break"); // start main here
 
 	lcd_sync();
-	lcd_set_digit(LCD_DEG_1, 3);
+	lcd_set_digit(LCD_DEG_1, 1);
 
 	// switch to 100k mode
 	radio_switch_100k();
 
 	lcd_sync();
-	lcd_set_digit(LCD_DEG_1, 4);
+	lcd_set_digit(LCD_DEG_1, 2);
 
 	if (!receive_cb())
 		__asm__("break"); // start main here
+
+	{
+		uint16_t block = 0;
+		uint8_t expected_counter = packet.counter + 1;
+		uint16_t timeout = get_tick() + 10000;
+		
+		while (true) {
+			if (tick_elapsed(timeout))
+				__asm__("break"); // start main here
+
+			if (!receive_block(timeout, expected_counter))
+				continue;
+
+			lcd_sync();
+			lcd_set_digit(LCD_DEG_1, 3 + block);
+
+			send_response(&packet, true);
+			block++;
+			expected_counter++;
+
+			if (block == BLOCK_COUNT)
+				break;
+		}
+	}
+
+	
 
 	lcd_sync();
 	lcd_set_digit(LCD_DEG_1, 0xF);
@@ -126,15 +147,15 @@ void send_response(as_packet_t * recvd, bool ack)
 		return;
 
 	radio_send(&answer);
-	if (!radio_wait(1000))
+	if (!radio_wait(get_tick() + 1000))
 		__asm__("break");
 }
 	
 bool receive_cb()
 {
-	uint16_t timeout = get_tick() + (uint16_t)10000u;
-	while (true) {
-		//radio_enter_receive(15);
+	uint16_t timeout = get_tick() + 10000;
+	while (!tick_elapsed(timeout)) {
+		radio_enter_receive(15);
 		if (!radio_wait(timeout))
 			return false;
 	
@@ -152,7 +173,73 @@ bool receive_cb()
 		send_response(&packet, true);
 		return true;
 	}
+	return false;
 }
 
+bool receive_block(uint16_t timeout_at, uint8_t expected_counter)
+{
+	bool first = true;
+	uint8_t byte = 0;
+
+	while (!tick_elapsed(timeout_at)) {
+		radio_enter_receive(AS_HEADER_SIZE + MAX_PAYLOAD);
+		if (!radio_wait(timeout_at)) {
+			lcd_sync();
+			lcd_set_digit(LCD_DEG_3, 0xF);
+			return false;
+		}
+		if (!radio_receive(&packet, AS_HEADER_SIZE + MAX_PAYLOAD)) {
+			lcd_sync();
+			lcd_set_digit(LCD_DEG_3, 0);
+			continue; // crc failed -> continue receiving
+		}	
+		if (CMP_ID(packet.to, hm_id) != 0) {
+			lcd_sync();
+			lcd_set_digit(LCD_DEG_3, 1);
+			continue; // not for us
+		}
+		if (packet.type != 0xca) {
+			lcd_sync();
+			lcd_set_digit(LCD_DEG_3, 2);
+			continue; // wrong packet type
+		}
+
+		if (packet.counter != expected_counter) {
+			lcd_sync();
+			lcd_set_digit(LCD_DEG_3, 3);
+			return false;
+		}
+
+		if (first) {
+			uint8_t length = packet.length - AS_HEADER_SIZE - 2;
+			if (((uint16_t)packet.payload[0] << 8) + packet.payload[1] != BLOCKSIZE) {
+				lcd_sync();
+				lcd_set_digit(LCD_DEG_3, 4);
+				return false;
+			}
+
+			memcpy(buf, packet.payload + 2, length);
+			byte += length;
+
+			first = false;
+		} else {
+			uint8_t length = packet.length - AS_HEADER_SIZE;
+			if (byte + length > BLOCKSIZE) {
+				lcd_sync();
+				lcd_set_digit(LCD_DEG_3, 5);
+				return false;
+			}
+
+			memcpy(buf + byte, packet.payload, length);
+			byte += length;
+		}
+
+		if (byte == BLOCKSIZE && packet.flags == 0x20) // page received completly and ack requested
+			return true;
+	}
+				lcd_sync();
+				lcd_set_digit(LCD_DEG_3, 6);
+	return false;
+}
 
 

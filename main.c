@@ -4,6 +4,8 @@
 
 #include "stm8l.h"
 
+#define MAX_PAYLOAD 10
+
 #include "lcd.h"
 #include "radio.h"
 #include "delay.h"

@@ -105,7 +105,11 @@ void radio_switch_100k()
 
 void white(uint8_t len, uint8_t * data)
 {
-	const uint8_t pn9[] = { 0xff, 0xe1, 0x1d, 0x9a, 0xed, 0x85, 0x33, 0x24, 0xea, 0x7a, 0xd2, 0x39, 0x70, 0x97, 0x57, 0x0a, 0x54, 0x7d, 0x2d, 0xd8, 0x6d, 0x0d, 0xba, 0x8f, 0x67, 0x59, 0xc7 };
+	const uint8_t pn9[] = {
+		0xff, 0xe1, 0x1d, 0x9a, 0xed, 0x85, 0x33, 0x24, 0xea, 0x7a, 0xd2, 0x39, 0x70, 0x97, 0x57, 0x0a,
+		0x54, 0x7d, 0x2d, 0xd8, 0x6d, 0x0d, 0xba, 0x8f, 0x67, 0x59, 0xc7, 0xa2, 0xbf, 0x34, 0xca, 0x18,
+		0x30, 0x53, 0x93, 0xdf, 0x92, 0xec, 0xa7, 0x15, 0x8a, 0xdc, 0xf4, 0x86, 0x55, 0x4e, 0x18, 0x21,
+		0x40 };
 	if (len > sizeof(pn9))
 		__asm__ ("break");
 	for (uint8_t i = len - 1; i != 0; i--)
@@ -120,13 +124,13 @@ static bool wait_int(uint16_t timeout_at)
 	WFE_CR1 = WFE_CR1_TIM2_EV1; // timer 2 capture and compare events
 	WFE_CR2 = WFE_CR2_EXTI_EV4; // nIQR is PB4 which is by default mapped to EXTI4
 
-	//if (!tick_elapsed(timeout_at - 1)) { // -1 for safety: i don't know if set_timeout() timesout if timeout_at is already reached!
+	while (!tick_elapsed(timeout_at - 1) && read_int()) { // -1 for safety: i don't know if set_timeout() timesout if timeout_at is already reached!
 		PB_CR2 |= (1u<<4); // PB4 external interrupt enabled
 		EXTI_SR1 = EXTI_SR1_P4F; // reset external interrupt port 4
 		set_timeout(timeout_at);
 
 		wfe();
-	//}
+	}
 
 	//clear_timeout(); // i think we don't need this? TODO when leaving e.g. the bootloader this should be reset
 	// TODO we don't have to reset anything else as long as the WFE flags stay enabled. they will prevent any real interrupt

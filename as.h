@@ -1,7 +1,7 @@
 #ifndef AS_INCLUDED
 #define AS_INCLUDED
 
-#define MAX_PAYLOAD 10
+#define AS_HEADER_SIZE 9 // header length without length byte
 
 typedef union {
 	struct {
