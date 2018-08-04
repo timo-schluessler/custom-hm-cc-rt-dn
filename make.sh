@@ -7,3 +7,6 @@ sdcc -mstm8 time.c -c --debug --opt-code-size --all-callee-saves --verbose --sta
 
 sdcc -mstm8 --out-fmt-elf --debug --all-callee-saves --verbose --stack-auto --no-peep -o main.elf main.c lcd.rel time.rel
 #sdcc -mstm8 --out-fmt-elf --debug --opt-code-size --all-callee-saves --verbose --stack-auto --no-peep -o main.elf main.c lcd.rel time.rel
+
+../install/bin/stm8-objcopy -j HOME -j GSINIT -j GSFINAL -j CODE -j INITIALIZER -I elf32-stm8 main.elf -O ihex main.ihx
+../install/bin/stm8-objcopy -I ihex main.ihx -O binary main.bin

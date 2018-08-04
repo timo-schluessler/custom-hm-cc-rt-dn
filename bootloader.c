@@ -10,6 +10,7 @@
  
 #include "si4430.c"
 
+void debug(uint16_t nr);
 
 //#define USE_LSE
 
@@ -52,6 +53,7 @@ void main()
 #else
 	// clock divider to 128
 	//CLK_CKDIVR = 0b111; // TODO for test only
+	CLK_CKDIVR = 0;
 	// enable low speed external manually (it's needed for RTC clk which is needed for LCD clk)
 	CLK_ECKCR |= CLK_ECKCR_LSEON;
 	while (!(CLK_ECKCR & CLK_ECKCR_LSERDY))
@@ -115,11 +117,12 @@ void main()
 				continue;
 
 			lcd_sync();
-			lcd_set_digit(LCD_DEG_1, 3 + block);
+			lcd_set_digit(LCD_DEG_1, (3 + block) & 0xf);
 
 			send_response(&packet, true);
 			block++;
 			expected_counter++;
+			timeout = get_tick() + 10000;
 
 			if (block == BLOCK_COUNT)
 				break;
@@ -176,47 +179,58 @@ bool receive_cb()
 	return false;
 }
 
+#if 1
+#define DEBUG(x, y) do { \
+	lcd_sync(); \
+	lcd_set_digit(x, y); \
+} while (false);
+#else
+#define DEBUG(x, y) do { \
+} while (false);
+#endif
+
 bool receive_block(uint16_t timeout_at, uint8_t expected_counter)
 {
 	bool first = true;
-	uint8_t byte = 0;
+	uint16_t byte = 0;
+	uint16_t block_size;
 
+	radio_enter_receive(AS_HEADER_SIZE + MAX_PAYLOAD);
 	while (!tick_elapsed(timeout_at)) {
-		radio_enter_receive(AS_HEADER_SIZE + MAX_PAYLOAD);
 		if (!radio_wait(timeout_at)) {
-			lcd_sync();
-			lcd_set_digit(LCD_DEG_3, 0xF);
+			DEBUG(LCD_DEG_3, 0xf);
 			return false;
 		}
 		if (!radio_receive(&packet, AS_HEADER_SIZE + MAX_PAYLOAD)) {
-			lcd_sync();
-			lcd_set_digit(LCD_DEG_3, 0);
+			DEBUG(LCD_DEG_3, 0);
+			radio_enter_receive(AS_HEADER_SIZE + MAX_PAYLOAD);
 			continue; // crc failed -> continue receiving
 		}	
+		radio_enter_receive(AS_HEADER_SIZE + MAX_PAYLOAD);
 		if (CMP_ID(packet.to, hm_id) != 0) {
-			lcd_sync();
-			lcd_set_digit(LCD_DEG_3, 1);
+			DEBUG(LCD_DEG_3, 1);
 			continue; // not for us
 		}
 		if (packet.type != 0xca) {
-			lcd_sync();
-			lcd_set_digit(LCD_DEG_3, 2);
+			DEBUG(LCD_DEG_3, 2);
 			continue; // wrong packet type
 		}
 
 		if (packet.counter != expected_counter) {
-			lcd_sync();
-			lcd_set_digit(LCD_DEG_3, 3);
+			DEBUG(LCD_DEG_3, 3);
+			radio_wait(get_tick()); // cancel receiving (wait with timeout = 0)
 			return false;
 		}
 
 		if (first) {
 			uint8_t length = packet.length - AS_HEADER_SIZE - 2;
-			if (((uint16_t)packet.payload[0] << 8) + packet.payload[1] != BLOCKSIZE) {
-				lcd_sync();
-				lcd_set_digit(LCD_DEG_3, 4);
+			block_size = ((uint16_t)packet.payload[0] << 8) + packet.payload[1];
+			if (block_size > BLOCKSIZE) {
+				DEBUG(LCD_DEG_3, 4);
+				radio_wait(get_tick()); // cancel receiving (wait with timeout = 0)
 				return false;
 			}
+
 
 			memcpy(buf, packet.payload + 2, length);
 			byte += length;
@@ -225,8 +239,8 @@ bool receive_block(uint16_t timeout_at, uint8_t expected_counter)
 		} else {
 			uint8_t length = packet.length - AS_HEADER_SIZE;
 			if (byte + length > BLOCKSIZE) {
-				lcd_sync();
-				lcd_set_digit(LCD_DEG_3, 5);
+				DEBUG(LCD_DEG_3, 5);
+				radio_wait(get_tick()); // cancel receiving (wait with timeout = 0)
 				return false;
 			}
 
@@ -234,12 +248,24 @@ bool receive_block(uint16_t timeout_at, uint8_t expected_counter)
 			byte += length;
 		}
 
-		if (byte == BLOCKSIZE && packet.flags == 0x20) // page received completly and ack requested
+		//debug(byte);
+
+		if (byte == block_size && packet.flags == 0x20) { // page received completly and ack requested
+			radio_wait(get_tick()); // cancel receiving (wait with timeout = 0)
 			return true;
+		}
 	}
-				lcd_sync();
-				lcd_set_digit(LCD_DEG_3, 6);
+
+	DEBUG(LCD_DEG_3, 6);
 	return false;
 }
 
 
+void debug(uint16_t nr)
+{
+	lcd_sync();
+	lcd_set_digit(LCD_TIME_4, (nr >>  0) & 0xf);
+	lcd_set_digit(LCD_TIME_3, (nr >>  4) & 0xf);
+	lcd_set_digit(LCD_TIME_2, (nr >>  8) & 0xf);
+	lcd_set_digit(LCD_TIME_1, (nr >> 12) & 0xf);
+}
