@@ -20,6 +20,10 @@ void debug(uint16_t nr);
 void send_response(as_packet_t * recvd, bool ack);
 bool receive_cb();
 bool receive_block(uint16_t timeout_at, uint8_t expected_counter);
+void start_main();
+void (*write_flash_block)(uint16_t addr);
+void write_flash_block_flash(uint16_t addr);
+void copy_function_to_ram();
 
 const uint8_t hm_id[] = { 0x9a, 0x45, 0xa0 };
 const uint8_t hm_serial[] = { 'M','Y','H','M','C','C','R','T','D','N' };
@@ -29,8 +33,9 @@ const uint8_t hm_serial[] = { 'M','Y','H','M','C','C','R','T','D','N' };
 
 #include "lcd.c"
 
-#define BLOCK_COUNT 234
-#define BLOCKSIZE 290 //128
+#define BLOCK_COUNT (512 - 32) // 64kb - 8kb (bootloader) = 128 * (512 - 16)
+#define BLOCKSIZE 128
+#define MAIN_START (0x8000 + 0x2000)
 uint8_t buf[BLOCKSIZE];
 
 void main()
@@ -72,6 +77,8 @@ void main()
 	radio_init();
 	lcd_init();
 
+	copy_function_to_ram();
+
 #if 1
 	// send hello packet
 	{
@@ -90,7 +97,7 @@ void main()
 	lcd_set_digit(LCD_DEG_1, 0);
 
 	if (!receive_cb())
-		__asm__("break"); // start main here
+		start_main();
 
 	lcd_sync();
 	lcd_set_digit(LCD_DEG_1, 1);
@@ -102,7 +109,7 @@ void main()
 	lcd_set_digit(LCD_DEG_1, 2);
 
 	if (!receive_cb())
-		__asm__("break"); // start main here
+		start_main();
 
 	{
 		uint16_t block = 0;
@@ -111,13 +118,15 @@ void main()
 		
 		while (true) {
 			if (tick_elapsed(timeout))
-				__asm__("break"); // start main here
+				start_main();
 
 			if (!receive_block(timeout, expected_counter))
 				continue;
 
 			lcd_sync();
 			lcd_set_digit(LCD_DEG_1, (3 + block) & 0xf);
+
+			(*write_flash_block)((uint16_t)block * BLOCKSIZE);
 
 			send_response(&packet, true);
 			block++;
@@ -193,7 +202,7 @@ bool receive_block(uint16_t timeout_at, uint8_t expected_counter)
 {
 	bool first = true;
 	uint16_t byte = 0;
-	uint16_t block_size;
+	uint16_t block_size = 0;
 
 	radio_enter_receive(AS_HEADER_SIZE + MAX_PAYLOAD);
 	while (!tick_elapsed(timeout_at)) {
@@ -260,7 +269,6 @@ bool receive_block(uint16_t timeout_at, uint8_t expected_counter)
 	return false;
 }
 
-
 void debug(uint16_t nr)
 {
 	lcd_sync();
@@ -268,4 +276,85 @@ void debug(uint16_t nr)
 	lcd_set_digit(LCD_TIME_3, (nr >>  4) & 0xf);
 	lcd_set_digit(LCD_TIME_2, (nr >>  8) & 0xf);
 	lcd_set_digit(LCD_TIME_1, (nr >> 12) & 0xf);
+}
+
+void start_main()
+{
+	__asm
+	jp [MAIN_START + 2]
+	__endasm;
+}
+
+void write_flash_block_flash(uint16_t off)
+{
+	(void*)off;
+	__asm
+	
+	// unlock flash programming
+	mov	0x5052, #0x56 // FLASH_PUKR
+	mov	0x5052, #0xae // FLASH_PUKR
+00001$:
+	ld		a, 0x5054 // FLASH_IAPSR
+	bcp	a, #0x02 // PUL
+	jreq	00001$
+
+	// enable block programming
+	mov	0x5051, #0x01 // FLASH_CR2 <- FLASH_CR2_PRG
+
+	ldw	x, #_buf // source
+	ldw	y, (0x3, sp) // destination offset
+
+	// copy 128 (0x80) bytes
+	ld		a, #0x80
+	ld		(0x00, sp), a
+00002$:
+	ld		a, (x)
+	ldf	(MAIN_START, y), a // use ldf because MAIN_START + 64kb is > 0x10000
+	incw	x
+	incw	y
+	dec	(0x00, sp)
+	jrne	00002$
+
+	// wait for completion
+00003$:
+	ld		a, 0x5054 // FLASH_IAPSR
+	bcp	a, #0x04 // EOP
+	jreq	00003$
+
+	// lock flash programming
+	//bres	0x5054, #1
+
+	__endasm;
+
+
+#if 0
+{
+	uint8_t * addr = 0xa0000;
+	uint8_t * in = buf;
+
+	// disable flash memory write protection
+	FLASH_PUKR = 0x56;
+	FLASH_PUKR = 0xAE;
+	while (!(FLASH_IAPSR & FLASH_IAPSR_PUL))
+		;
+
+	FLASH_CR2 = FLASH_CR2_PRG;
+	for (uint8_t i = 128; i != 0; --i)
+		*addr++ = *in++;
+	
+	while (!(FLASH_IAPSR & FLASH_IAPSR_EOP)) // busy wait for end of programming
+		;
+
+	FLASH_IAPSR &= ~FLASH_IAPSR_PUL; // reenable lock
+}
+#endif
+}
+
+uint8_t ram_function_space[128]; // last time i checked the function it took 68 byte. so we have some spare bytes
+void copy_function_to_ram()
+{
+	for (uint8_t i = 0; i < sizeof(ram_function_space); i++)
+		ram_function_space[i] = ((uint8_t*)&write_flash_block_flash)[i];
+
+	write_flash_block = (void (*)(uint16_t))ram_function_space;
 }

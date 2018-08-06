@@ -44,6 +44,18 @@
 #define PF_CR1 *(__IO uint8_t*)0x501C
 #define PF_CR2 *(__IO uint8_t*)0x501D
 
+/* flash */
+#define FLASH_CR1 *(__IO uint8_t*)0x5050
+#define FLASH_CR2 *(__IO uint8_t*)0x5051
+#define FLASH_PUKR *(__IO uint8_t*)0x5052
+#define FLASH_DUKR *(__IO uint8_t*)0x5053
+#define FLASH_IAPSR *(__IO uint8_t*)0x5054
+
+#define FLASH_CR2_PRG (1u<<0)
+
+#define FLASH_IAPSR_EOP (1u<<2)
+#define FLASH_IAPSR_PUL (1u<<1)
+
 /* external interrupt */
 
 #define EXTI_CR1 *(__IO uint8_t*)0x50A0
