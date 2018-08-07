@@ -3,25 +3,25 @@
 
 #define T_COUNT(x) ((( F_CPU * x / 1000000UL )-5)/5)
 
-static inline void _delay_cycl( unsigned short __ticks )
+static void delay_cycl( unsigned short ticks )
 {
 	__asm__("nop\n nop\n"); 
 	do {    
-		__ticks--;
-	} while ( __ticks );
+		ticks--;
+	} while (ticks);
 	__asm__("nop\n");
 }
 
-static inline void _delay_us( unsigned short __us )
+static void delay_us( unsigned short us )
 {
-	_delay_cycl( (unsigned short) T_COUNT(__us) );
+	delay_cycl( (unsigned short) T_COUNT(us) );
 }
 
-static inline void _delay_ms( unsigned short __ms )
+static void delay_ms( unsigned short ms )
 {
-	while ( __ms-- )
+	while (ms--)
 	{
-		_delay_us( 1000 );
+		delay_us(1000);
 	}
 }
 

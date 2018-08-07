@@ -23,8 +23,10 @@ void send_response(as_packet_t * recvd, bool ack);
 bool receive_cb(uint16_t timeout_at);
 bool receive_block(uint16_t timeout_at, uint8_t expected_counter);
 void (*write_flash_block)(uint16_t addr);
-void write_flash_block_flash(uint16_t addr);
-void copy_function_to_ram();
+void (*erase_unused_blocks)(uint16_t addr);
+void copy_functions_to_ram();
+bool app_crc_ok();
+bool bootloader_buttons_pressed();
 
 const uint8_t hm_id[] = { 0x9a, 0x45, 0xa0 };
 const uint8_t hm_serial[] = { 'M','Y','H','M','C','C','R','T','D','N' };
@@ -36,7 +38,8 @@ const uint8_t hm_serial[] = { 'M','Y','H','M','C','C','R','T','D','N' };
 
 #define BLOCK_COUNT (512 - 32) // 64kb - 8kb (bootloader) = 128 * (512 - 16)
 #define BLOCKSIZE 128
-#define MAIN_START (0x8000 + 0x2000)
+#define FLASH_START 0x8000
+#define MAIN_START (FLASH_START + 0x2000)
 uint8_t buf[BLOCKSIZE];
 
 static inline void start_main()
@@ -88,11 +91,14 @@ void main()
 		;
 #endif
 
+	if (app_crc_ok() && !bootloader_buttons_pressed())
+		start_main();
+
 	tick_init();
 	radio_init();
 	lcd_init();
 
-	copy_function_to_ram();
+	copy_functions_to_ram();
 
 	// send hello packet
 	{
@@ -103,14 +109,18 @@ void main()
 		}};
 		radio_send(&packet);
 		if (!radio_wait(get_tick() + 1000))
-			start_main();
+			restart();
 	}
 
 	lcd_sync();
 	lcd_set_digit(LCD_DEG_1, 0);
 
-	if (!receive_cb(get_tick() + 1500))
-		start_main();
+	if (!receive_cb(get_tick() + 1500)) {
+		if (app_crc_ok())
+			start_main();
+		else
+			restart();
+	}
 
 	lcd_sync();
 	lcd_set_digit(LCD_DEG_1, 1);
@@ -122,7 +132,7 @@ void main()
 	lcd_set_digit(LCD_DEG_1, 2);
 
 	if (!receive_cb(get_tick() + 1000))
-		start_main();
+		restart();
 
 	{
 #define BLOCK_TIMEOUT 1500
@@ -150,7 +160,12 @@ void main()
 			if (block == BLOCK_COUNT)
 				break;
 		}
+
+		// erase the remaining flash space
+		// this is needed to find [ 0x00 crc ] when checking crc
+		(*erase_unused_blocks)((uint16_t)block * BLOCKSIZE);
 	}
+
 
 	restart();
 
@@ -282,7 +297,7 @@ void debug(uint16_t nr)
 	lcd_set_digit(LCD_TIME_1, (nr >> 12) & 0xf);
 }
 
-void erase_unused_blocks(uint16_t start_offset)
+void erase_unused_blocks_flash(uint16_t start_offset)
 {
 	(void*)start_offset;
 	__asm
@@ -295,17 +310,17 @@ void erase_unused_blocks(uint16_t start_offset)
 	bcp	a, #0x02 // PUL
 	jreq	00001$
 
+	// load start block address
+	ldw	x, (0x3, sp)
+	addw	x, #(MAIN_START - FLASH_START) // add this offset so we can easily check x == 0 below for end condition
+	clrw	y
+
+00002$:
 	// enable block erasing
 	mov	0x5051, #0x20 // FLASH_CR2 <- FLASH_CR2_ERASE
 
-	// load start block address
-	ldw	x, (0x3, sp)
-
-00002$:
-	ldf	(MAIN_START + 0, x), #0x0 // use ldf because MAIN_START + 64kb is > 0x10000
-	ldf	(MAIN_START + 1, x), #0x0 // use ldf because MAIN_START + 64kb is > 0x10000
-	ldf	(MAIN_START + 2, x), #0x0 // use ldf because MAIN_START + 64kb is > 0x10000
-	ldf	(MAIN_START + 3, x), #0x0 // use ldf because MAIN_START + 64kb is > 0x10000
+	ldw	(FLASH_START + 0, x), y
+	ldw	(FLASH_START + 2, x), y
 
 	// wait for completion
 00003$:
@@ -397,7 +412,158 @@ void copy_functions_to_ram()
 	write_flash_block = (void (*)(uint16_t))write_flash_block_ram;
 
 	for (uint8_t i = 0; i < sizeof(erase_unused_blocks_ram); i++)
-		erase_unsued_blocks_ram[i] = ((uint8_t*)&erase_unused_blocks_flash)[i];
+		erase_unused_blocks_ram[i] = ((uint8_t*)&erase_unused_blocks_flash)[i];
 
 	erase_unused_blocks = (void (*)(uint16_t))erase_unused_blocks_ram;
 }
+
+bool app_crc_ok()
+{
+	// search for flash block that ends with 0x55 crc crc. that is end of main program
+	__asm
+	ldw	x, #(0xfffd - (MAIN_START - FLASH_START)) // third last byte of block: equals 0x55 in last app block
+	ld		a, #0x55
+
+	// start at end of flash until MAIN_START
+00001$:
+	cp		a, (MAIN_START, x)
+	jreq	00002$
+	subw	x, #128
+	jrnc	00001$ // if x didn't underflow, continue with next block
+
+	// return false
+	ld		a, #0
+	ret
+
+00002$:
+	// calculate crc
+	// stack: end offset[2], crc[2]
+	sub	sp, #3
+
+	addw	x, #3 // +3 to let app_end be the byte-offset after the last byte to be checked by crc
+	ldw	(0x00, sp), x // store end offset
+	clrw	y // cur offset
+	ldw	x, #0xffff
+	ldw	(0x02, sp), x // crc = 0xffff
+
+00003$:
+#if 0 // crc = crc16_tab[(crc >> 8) ^ (*buf++)] ^ (crc << 8); (version from crc16.c for homematic/cc1101 crc16)
+	ld		a, (MAIN_START, y)
+	incw	y // increment offset
+
+	xor	a, (0x02, sp) // xor data with high byte crc
+	clrw	x
+	ld		xl, a
+	sllw	x // time 2 (16 bit data table)
+	ldw	x, (_crc16_tab, x) // load data table content
+
+	ld		a, xh
+	xor	a, (0x03, sp) // xor high byte table content with low byte crc
+	ld		xh, a // write back to high byte crc, low byte stays as read from table
+	ldw	(0x02, sp), x // safe crc
+#else // crc = ((crc << 8) | *buf++) ^ crc16_tab[crc >> 8]; (version from srecord)
+	ld		a, (0x02, sp) // high byte crc
+	clrw	x
+	ld		xl, a
+	sllw	x // times 2 (16 bit data table)
+	ldw	x, (_crc16_tab, x) // load data table content
+
+	ld		a, xl
+	xor	a, (MAIN_START, y) // data byte
+	incw	y
+	ld		xl, a
+
+	ld		a, xh
+	xor	a, (0x03, sp) // low byte crc
+	ld		xh, a
+	ldw	(0x02, sp), x // safe new crc
+#endif
+
+	ldw	x, y // load cur offset to x because cpw only works with x (when using sp offset)
+	cpw	x, (0x0, sp)
+	jrne	00003$
+
+	// if crc is zero, return 1, else 0
+	clr	a
+	ldw	x, (0x02, sp) // load/test crc
+	jrne	00004$
+	inc	a
+
+00004$:
+	addw	sp, #3
+	ret
+
+	__endasm;
+	return false;
+
+#if 0
+
+	// calculate crc
+	sub	sp, #8
+	ldw	x, #_crc16_tab
+	ldw	(0x03, sp), x
+
+00101$:
+	// counter
+	ld	a, (0x0d, sp)
+	ld	xl, a
+	dec	a
+	ld	(0x0d, sp), a
+	ld	a, xl
+	tnz	a
+	jreq	00103$
+
+	ld	a, (0x0b, sp) // high byte crc
+	ld	(0x08, sp), a
+
+	ldw	x, (0x0e, sp) // data
+	ld	a, (x)
+	incw	x
+	ldw	(0x0e, sp), x
+
+	xor	a, (0x08, sp) // data xor high byte crc
+	ld	xl, a
+
+	// load table content
+	clr	(0x05, sp)
+	clr	(0x07, sp)
+	ld	a, (0x05, sp)
+	xor	a, (0x07, sp) // 0x0 xor 0x0 = 0x00 ???
+	ld	xh, a // same as clr xh? or clr a; ld xh, a
+	sllw	x // times 2 (16 bit table)
+	addw	x, (0x03, sp) // add address of crc16_tab
+	ldw	x, (x) // table content
+	ldw	(0x01, sp), x
+
+	ld	a, (0x0c, sp) // low byte crc
+	ld	xh, a
+	clr	a
+	xor	a, (0x02, sp) // low byte table content
+	rlwa	x // rotate left trough a by 1 byte
+	xor	a, (0x01, sp) // high byte table content with low byte crc
+	ld	xh, a
+	ldw	(0x0b, sp), x // store as new crc
+	jra	00101$
+	ldw	x, (0x0b, sp)
+	addw	sp, #8
+	ret
+
+
+	return true;
+#endif
+}
+
+bool bootloader_buttons_pressed()
+{
+	PF_CR1 |= (1<<4) | (1<<6); // enable pullups
+	delay_ms(100);
+	return (PF_IDR & ((1<<4) | (1<<6))) == 0;
+}
+
+
+
+
+
+
+
+

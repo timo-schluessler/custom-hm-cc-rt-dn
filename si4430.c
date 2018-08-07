@@ -48,11 +48,11 @@ void radio_init()
 	spi_enable();
 
 	// reset Si4431
-	_delay_us(5);
+	//_delay_us(5);
 	select();
-	_delay_us(10);
+	delay_us(10);
 	deselect();
-	_delay_us(41);
+	delay_us(41);
 
 	//partnum = read_reg(SI4430_DEVICE_TYPE);
 	//version = read_reg(SI4430_DEVICE_VERSION);

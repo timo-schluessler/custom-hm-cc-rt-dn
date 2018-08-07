@@ -21,6 +21,6 @@ LAST=$(echo "obase=16; ibase=16; ($LAST + 4 + 7F) / 80 * 80;" | bc -q) # add 1 t
 CODE_END=$(echo "obase=16; ibase=16; ${LAST} - 3;" | bc -q)
 CRC=$(echo "obase=16; ibase=16; ${LAST} - 2;" | bc -q)
 echo last is now $LAST
-srec_cat main.ihx -intel -offset -${OFFSET} -fill 0xFF 0 0x${CODE_END} -generate 0x${CODE_END} 0x${CRC} -constant 0 -crc16_big_endian 0x${CRC} -polynomial ibm -o main.tmp -binary
+srec_cat '(' main.ihx -intel -offset -${OFFSET} -fill 0xFF 0 0x${CODE_END} -generate 0x${CODE_END} 0x${CRC} -constant 0x55 ')' -crc16_big_endian 0x${CRC} -polynomial ibm -o main.tmp -binary
 php bin2eq3.php main.tmp main.eq3 128
-rm main.tmp
+#rm main.tmp
