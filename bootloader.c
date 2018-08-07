@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define F_CPU 16000000UL
+
 #define MAX_PAYLOAD 37
 
 #include "stm8l.h"
@@ -18,9 +20,8 @@ void debug(uint16_t nr);
 #define MSG_RESPONSE_NACK        0x80
 
 void send_response(as_packet_t * recvd, bool ack);
-bool receive_cb();
+bool receive_cb(uint16_t timeout_at);
 bool receive_block(uint16_t timeout_at, uint8_t expected_counter);
-void start_main();
 void (*write_flash_block)(uint16_t addr);
 void write_flash_block_flash(uint16_t addr);
 void copy_function_to_ram();
@@ -37,6 +38,20 @@ const uint8_t hm_serial[] = { 'M','Y','H','M','C','C','R','T','D','N' };
 #define BLOCKSIZE 128
 #define MAIN_START (0x8000 + 0x2000)
 uint8_t buf[BLOCKSIZE];
+
+static inline void start_main()
+{
+	__asm
+	jp [MAIN_START + 2]
+	__endasm;
+}
+
+static inline void restart()
+{
+	__asm
+	jp [0x8000 + 2]
+	__endasm;
+}
 
 void main()
 {
@@ -66,7 +81,7 @@ void main()
 	// f_sysclk = 16MHz / 128 = 125kHz
 #endif
 
-#if 1 // TODO not needed?
+#if 1 // TODO not needed? - only when using LCD
 	// configure RTC clock
 	CLK_CRTCR = (0b1000<<CLK_CRTCR_RTCSEL); // use LSE as RTC clk source
 	while (CLK_CRTCR & CLK_CRTCR_RTCSWBSY) // wait for the switch to finish
@@ -79,7 +94,6 @@ void main()
 
 	copy_function_to_ram();
 
-#if 1
 	// send hello packet
 	{
 		as_packet_t packet = { .data = {
@@ -88,15 +102,14 @@ void main()
 			hm_serial[5], hm_serial[6], hm_serial[7], hm_serial[8], hm_serial[9]
 		}};
 		radio_send(&packet);
-		if (!radio_wait(get_tick() + 5000))
-			__asm__("break");
+		if (!radio_wait(get_tick() + 1000))
+			start_main();
 	}
-#endif
 
 	lcd_sync();
 	lcd_set_digit(LCD_DEG_1, 0);
 
-	if (!receive_cb())
+	if (!receive_cb(get_tick() + 1500))
 		start_main();
 
 	lcd_sync();
@@ -108,17 +121,18 @@ void main()
 	lcd_sync();
 	lcd_set_digit(LCD_DEG_1, 2);
 
-	if (!receive_cb())
+	if (!receive_cb(get_tick() + 1000))
 		start_main();
 
 	{
+#define BLOCK_TIMEOUT 1500
 		uint16_t block = 0;
 		uint8_t expected_counter = packet.counter + 1;
-		uint16_t timeout = get_tick() + 10000;
+		uint16_t timeout = get_tick() + BLOCK_TIMEOUT;
 		
 		while (true) {
 			if (tick_elapsed(timeout))
-				start_main();
+				break;
 
 			if (!receive_block(timeout, expected_counter))
 				continue;
@@ -131,23 +145,14 @@ void main()
 			send_response(&packet, true);
 			block++;
 			expected_counter++;
-			timeout = get_tick() + 10000;
+			timeout = get_tick() + BLOCK_TIMEOUT;
 
 			if (block == BLOCK_COUNT)
 				break;
 		}
 	}
 
-	
-
-	lcd_sync();
-	lcd_set_digit(LCD_DEG_1, 0xF);
-
-	while (true)
-		;
-
-
-
+	restart();
 
 }
 
@@ -163,12 +168,11 @@ void send_response(as_packet_t * recvd, bool ack)
 		__asm__("break");
 }
 	
-bool receive_cb()
+bool receive_cb(uint16_t timeout_at)
 {
-	uint16_t timeout = get_tick() + 10000;
-	while (!tick_elapsed(timeout)) {
+	while (!tick_elapsed(timeout_at)) {
 		radio_enter_receive(15);
-		if (!radio_wait(timeout))
+		if (!radio_wait(timeout_at))
 			return false;
 	
 		if (!radio_receive(&packet, 15))
@@ -278,10 +282,43 @@ void debug(uint16_t nr)
 	lcd_set_digit(LCD_TIME_1, (nr >> 12) & 0xf);
 }
 
-void start_main()
+void erase_unused_blocks(uint16_t start_offset)
 {
+	(void*)start_offset;
 	__asm
-	jp [MAIN_START + 2]
+
+	// unlock flash programming
+	mov	0x5052, #0x56 // FLASH_PUKR
+	mov	0x5052, #0xae // FLASH_PUKR
+00001$:
+	ld		a, 0x5054 // FLASH_IAPSR
+	bcp	a, #0x02 // PUL
+	jreq	00001$
+
+	// enable block erasing
+	mov	0x5051, #0x20 // FLASH_CR2 <- FLASH_CR2_ERASE
+
+	// load start block address
+	ldw	x, (0x3, sp)
+
+00002$:
+	ldf	(MAIN_START + 0, x), #0x0 // use ldf because MAIN_START + 64kb is > 0x10000
+	ldf	(MAIN_START + 1, x), #0x0 // use ldf because MAIN_START + 64kb is > 0x10000
+	ldf	(MAIN_START + 2, x), #0x0 // use ldf because MAIN_START + 64kb is > 0x10000
+	ldf	(MAIN_START + 3, x), #0x0 // use ldf because MAIN_START + 64kb is > 0x10000
+
+	// wait for completion
+00003$:
+	ld		a, 0x5054 // FLASH_IAPSR
+	bcp	a, #0x04 // EOP
+	jreq	00003$
+
+	addw	x, #128 // increment one page. when x is zero again, we erased all blocks
+	jrne	00002$
+
+	// lock flash programming
+	bres	0x5054, #1
+
 	__endasm;
 }
 
@@ -322,7 +359,7 @@ void write_flash_block_flash(uint16_t off)
 	jreq	00003$
 
 	// lock flash programming
-	//bres	0x5054, #1
+	bres	0x5054, #1
 
 	__endasm;
 
@@ -350,11 +387,17 @@ void write_flash_block_flash(uint16_t off)
 #endif
 }
 
-uint8_t ram_function_space[128]; // last time i checked the function it took 68 byte. so we have some spare bytes
-void copy_function_to_ram()
+uint8_t write_flash_block_ram[128]; // last time i checked the function it took 68 byte. so we have some spare bytes
+uint8_t erase_unused_blocks_ram[128];
+void copy_functions_to_ram()
 {
-	for (uint8_t i = 0; i < sizeof(ram_function_space); i++)
-		ram_function_space[i] = ((uint8_t*)&write_flash_block_flash)[i];
+	for (uint8_t i = 0; i < sizeof(write_flash_block_ram); i++)
+		write_flash_block_ram[i] = ((uint8_t*)&write_flash_block_flash)[i];
 
-	write_flash_block = (void (*)(uint16_t))ram_function_space;
+	write_flash_block = (void (*)(uint16_t))write_flash_block_ram;
+
+	for (uint8_t i = 0; i < sizeof(erase_unused_blocks_ram); i++)
+		erase_unsued_blocks_ram[i] = ((uint8_t*)&erase_unused_blocks_flash)[i];
+
+	erase_unused_blocks = (void (*)(uint16_t))erase_unused_blocks_ram;
 }

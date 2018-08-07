@@ -15,7 +15,6 @@
 
 #define read_int() ((bool)(PB_IDR & nIRQ))
 
-//static void strobe(uint8_t cmd);
 static uint8_t read_reg(uint8_t addr);
 static void read_burst(uint8_t addr, uint8_t len, uint8_t * data);
 
@@ -37,31 +36,26 @@ status_t stati[50] = { { 0 } };
 uint8_t stati_in = 0;
 #endif
 
-volatile uint8_t partnum;
-volatile uint8_t version;
-
 static enum { radio_idle, radio_receiving, radio_sending } radio_state;
 
 void radio_init()
 {
-	const uint8_t reg_1d_25[] = { 0x3C, 0x02, 0x03, 0x90, 0x20, 0x51, 0xDC, 0x00, 0x58 };
-	const uint8_t reg_32_39[] = { 0x00, 0x0e, 0x08, 0x22, 0xE9, 0xCA, 0xE9, 0xCA };
-	const uint8_t reg_6e_77[] = { 0x51, 0xDC, 0x2c, 0x22, 0x1E, 0x00, 0x00, 0x73, 0x67, 0x9F };
+	static const uint8_t reg_1d_25[] = { 0x3C, 0x02, 0x03, 0x90, 0x20, 0x51, 0xDC, 0x00, 0x58 };
+	static const uint8_t reg_32_39[] = { 0x00, 0x0e, 0x08, 0x22, 0xE9, 0xCA, 0xE9, 0xCA };
+	static const uint8_t reg_6e_77[] = { 0x51, 0xDC, 0x2c, 0x22, 0x1E, 0x00, 0x00, 0x73, 0x67, 0x9F };
 
 	spi_init();
 	spi_enable();
 
-	// reset CC1101
+	// reset Si4431
 	_delay_us(5);
 	select();
 	_delay_us(10);
 	deselect();
 	_delay_us(41);
 
-	//strobe(CC1101_SRES);
-
-	partnum = read_reg(SI4430_DEVICE_TYPE);
-	version = read_reg(SI4430_DEVICE_VERSION);
+	//partnum = read_reg(SI4430_DEVICE_TYPE);
+	//version = read_reg(SI4430_DEVICE_VERSION);
 
 	// reset and wait for chip ready
 	write_reg(SI4430_OMFC1, SI4430_SWRES | SI4430_XTON);
@@ -93,8 +87,8 @@ void radio_init()
 
 void radio_switch_100k()
 {
-	const uint8_t reg_1c_25[] = { 0x9A, 0x44, 0x0A, 0x03, 0x3C, 0x02, 0x22, 0x22, 0x07, 0xFF };
-	const uint8_t reg_6e_72[] = { 0x19, 0x9A, 0x0C, 0x22, 0x4C };
+	static const uint8_t reg_1c_25[] = { 0x9A, 0x44, 0x0A, 0x03, 0x3C, 0x02, 0x22, 0x22, 0x07, 0xFF };
+	static const uint8_t reg_6e_72[] = { 0x19, 0x9A, 0x0C, 0x22, 0x4C };
 
 	// write all changed settings from Si443x-Register-Settings-100k.ods
 	write_burst(0x1c, sizeof(reg_1c_25), reg_1c_25);
@@ -105,7 +99,7 @@ void radio_switch_100k()
 
 void white(uint8_t len, uint8_t * data)
 {
-	const uint8_t pn9[] = {
+	static const uint8_t pn9[] = {
 		0xff, 0xe1, 0x1d, 0x9a, 0xed, 0x85, 0x33, 0x24, 0xea, 0x7a, 0xd2, 0x39, 0x70, 0x97, 0x57, 0x0a,
 		0x54, 0x7d, 0x2d, 0xd8, 0x6d, 0x0d, 0xba, 0x8f, 0x67, 0x59, 0xc7, 0xa2, 0xbf, 0x34, 0xca, 0x18,
 		0x30, 0x53, 0x93, 0xdf, 0x92, 0xec, 0xa7, 0x15, 0x8a, 0xdc, 0xf4, 0x86, 0x55, 0x4e, 0x18, 0x21,
@@ -271,15 +265,6 @@ void radio_poll()
 	}
 	else if (radio_sent())
 		radio_enter_receive(14);
-}
-
-static void strobe(uint8_t cmd)
-{
-	select();
-	wait_miso();
-	status = spi_send_byte(cmd);
-	deselect();
-	_delay_us(1000);
 }
 
 static uint8_t read_reg(uint8_t addr)

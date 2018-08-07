@@ -4,6 +4,8 @@
 
 #include "stm8l.h"
 
+#define F_CPU 125000UL
+
 #define MAX_PAYLOAD 10
 
 #include "lcd.h"

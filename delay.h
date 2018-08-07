@@ -1,7 +1,6 @@
 #ifndef DELAY_INCLUDED
 #define DELAY_INCLUDED
 
-#define F_CPU 125000UL
 #define T_COUNT(x) ((( F_CPU * x / 1000000UL )-5)/5)
 
 static inline void _delay_cycl( unsigned short __ticks )
