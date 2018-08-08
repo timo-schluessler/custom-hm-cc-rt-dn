@@ -28,8 +28,11 @@ void copy_functions_to_ram();
 bool app_crc_ok();
 bool bootloader_buttons_pressed();
 
-const uint8_t hm_id[] = { 0x9a, 0x45, 0xa0 };
-const uint8_t hm_serial[] = { 'M','Y','H','M','C','C','R','T','D','N' };
+#define EEPROM_START 0x1000
+const uint8_t * hm_id = EEPROM_START;
+const uint8_t * hm_serial = EEPROM_START + 3;
+//const uint8_t hm_id[] = { 0x9a, 0x45, 0xa0 };
+//const uint8_t hm_serial[] = { 'H','M','C','C','R','T','D','N', '0', '0' };
 
 #define CMP_ID(a, b) (((a)[0] == (b)[0] && (a)[1] == (b)[1] && (a)[2] == (b)[2]) ? 0 : 1)
 #define LIST_ID(a) (a)[0], (a)[1], (a)[2]
