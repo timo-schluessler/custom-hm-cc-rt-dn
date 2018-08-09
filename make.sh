@@ -6,6 +6,9 @@ sdcc -mstm8 time.c -c --debug --opt-code-size --all-callee-saves --verbose --sta
 #sdcc -mstm8 spi.c -c --debug --opt-code-size --all-callee-saves --verbose --stack-auto --fverbose-asm --float-reent --no-peep
 
 sdcc -mstm8 --out-fmt-elf --code-loc 0xa000 --debug --all-callee-saves --verbose --stack-auto --no-peep -o main.elf main.c lcd.rel time.rel
+if [ $? -ne 0 ]; then
+	exit
+fi
 #sdcc -mstm8 --out-fmt-elf --debug --opt-code-size --all-callee-saves --verbose --stack-auto --no-peep -o main.elf main.c lcd.rel time.rel
 
 ../install/bin/stm8-objcopy -j HOME -j GSINIT -j GSFINAL -j CODE -j INITIALIZER -I elf32-stm8 main.elf -O ihex main.ihx
@@ -24,3 +27,7 @@ echo last is now $LAST
 srec_cat '(' main.ihx -intel -offset -${OFFSET} -fill 0xFF 0 0x${CODE_END} -generate 0x${CODE_END} 0x${CRC} -constant 0x55 ')' -crc16_big_endian 0x${CRC} -polynomial ibm -o main.tmp -binary
 php bin2eq3.php main.tmp main.eq3 128
 #rm main.tmp
+
+if [ $# -ne 0 ]; then
+	../install/bin/stm8-gdb main.elf -ex "target remote :3333" -ex "mon reset halt" -ex "load" -ex "jump *0xa007"
+fi

@@ -11,17 +11,12 @@
 #include "lcd.h"
 #include "radio.h"
 #include "delay.h"
+#include "spi.h"
+#include "motor.h"
 
 #define LEDS (1u<<7)
 
-#define MOTOR_LEFT_HIGH (1u<<4) // PD4
-#define MOTOR_LEFT_LOW (1u<<6) // PD6
-#define MOTOR_RIGHT_HIGH (1u<<5) // PD5
-#define MOTOR_RIGHT_LOW (1u<<7) // PD7
-#define MOTORS_MASK (MOTOR_LEFT_HIGH | MOTOR_LEFT_LOW | MOTOR_RIGHT_HIGH | MOTOR_RIGHT_LOW)
-
 void lcd_test();
-void motor_test();
 
 //#define USE_LSE
 
@@ -46,7 +41,7 @@ void main()
 	// f_sysclk = 32768Hz
 #else
 	// clock divider to 128
-	//CLK_CKDIVR = 0b111; // TODO for test only
+	CLK_CKDIVR = 0b111; // TODO for test only
 	// enable low speed external manually (it's needed for RTC clk which is needed for LCD clk)
 	CLK_ECKCR |= CLK_ECKCR_LSEON;
 	while (!(CLK_ECKCR & CLK_ECKCR_LSERDY))
@@ -66,19 +61,17 @@ void main()
 	PF_DDR = LEDS; // output
 	//PF_ODR |= LEDS; // enable backlight
 
-	{
-		PD_CR1 = MOTORS_MASK; // push-pull
-		PD_DDR = MOTORS_MASK; // output
-		PD_ODR = MOTOR_LEFT_HIGH | MOTOR_RIGHT_HIGH; // all BJTs off
-	}
+	motor_init();
 
 	radio_init();
-	radio_enter_receive(14);
+	spi_disable();
+	//radio_enter_receive(14);
+
+	motor_ref();
 
 	while (true) {
 		lcd_test();
-		//motor_test();
-		radio_poll();
+		//radio_poll();
 	}
 }
 
@@ -112,72 +105,5 @@ void lcd_test()
 	}
 }
 
-#define OFF 0
-#define LOW 1
-#define HIGH 2
-void set_motor(int8_t left, int8_t right)
-{
-	uint8_t odr = PD_ODR & ~MOTORS_MASK;
+#include "motor.c"
 
-	if (left == OFF)
-		odr |= MOTOR_LEFT_HIGH;
-	else if (left == LOW)
-		odr |= MOTOR_LEFT_LOW | MOTOR_LEFT_HIGH;
-	//else if (left == HIGH)
-	//	odr |= 0;
-	
-	if (right == OFF)
-		odr |= MOTOR_RIGHT_HIGH;
-	else if (right == LOW)
-		odr |= MOTOR_RIGHT_LOW | MOTOR_RIGHT_HIGH;
-	//else if (left == HIGH)
-	//	odr |= 0;
-
-	PD_ODR = odr;
-}
-
-uint16_t timeout = 1024;
-enum { Stop, Turn, CrossOver, Recirculate } state = Stop;
-bool dir = false;
-
-void motor_test()
-{
-
-	if (!tick_elapsed(timeout))
-		return;
-	
-	if (state == Stop) {
-		state = Turn;
-		timeout += 5 * 1024;
-		if (dir)
-			;//set_motor(HIGH, LOW);
-		else
-			;//set_motor(LOW, HIGH);
-	}
-	else if (state == Turn) {
-		state = CrossOver;
-		timeout += 20;
-		if (dir)
-			set_motor(OFF, LOW);
-		else
-			set_motor(LOW, OFF);
-	}
-	else if (state == CrossOver) {
-		set_motor(LOW, LOW);
-		state = Recirculate;
-		timeout += 500;
-	}
-	else if (state == Recirculate) {
-		state = Stop;
-		set_motor(OFF, OFF);
-
-#if 1
-		// TODO debug
-		timeout += 2000;
-		dir = !dir;
-#else
-		timeout += 10; // 10ms before turning on again
-#endif
-	}
-	lcd_data.value = state;
-}
