@@ -16,6 +16,10 @@
 
 #define LEDS (1u<<7)
 
+#define BUTTON_LEFT (1u<<4)
+#define BUTTON_MIDDLE (1u<<5)
+#define BUTTON_RIGHT (1u<<6)
+
 void lcd_test();
 
 //#define USE_LSE
@@ -60,6 +64,8 @@ void main()
 	PF_CR1 = LEDS; // push-pull
 	PF_DDR = LEDS; // output
 	//PF_ODR |= LEDS; // enable backlight
+
+	PF_CR1 |= BUTTON_LEFT | BUTTON_MIDDLE | BUTTON_RIGHT; // enable pullups
 
 	motor_init();
 
