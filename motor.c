@@ -1,6 +1,8 @@
 
-uint16_t motor_position;
-bool motor_dir = false;
+motor_position_t motor_position;
+#define BACKWARD -1
+#define FORWARD 1
+int8_t motor_dir = BACKWARD;
 bool motor_stop = false;
 
 bool motor_run(uint16_t now);
@@ -33,19 +35,22 @@ void motor_init()
 #define ENABLE_ENCODER() do { MOTOR_ENC_PORT_CR1 |= MOTOR_ENC; MOTOR_LED_PORT_ODR |= MOTOR_LED; } while(false);
 #define DISABLE_ENCODER() do { MOTOR_ENC_PORT_CR1 &= ~MOTOR_ENC; MOTOR_LED_PORT_ODR &= ~MOTOR_LED; } while(false);
 
-#define REF_STALL_THRESHOLD 100
-#define MAX_STALL_THRESHOLD 100
+#define REF_STALL_THRESHOLD 50
+#define MAX_STALL_THRESHOLD 25
+#define MEAN_COUNT 12
+#define VALVE_START_THRESHOLD 15
 
-uint16_t time_between_enc = 0;
-uint16_t motor_max_pos;
+motor_position_t motor_max_pos;
 bool motor_error;
 
-uint16_t next_debug;
 uint8_t mem[1400];
 uint16_t mem_in = 0;
 
 void motor_ref()
 {
+	uint16_t lowest;
+	uint16_t mean_start;
+	uint8_t mean_count;
 	uint16_t now;
 	uint16_t timeout;
 	uint16_t timeout2;
@@ -59,7 +64,7 @@ void motor_ref()
 	lcd_set_digit(LCD_DEG_3, 0);
 
 	// turn backward until we don't see an encoder impuls for longer than x
-	motor_dir = false;
+	motor_dir = BACKWARD;
 	now = get_tick();
 	timeout = now + REF_STALL_THRESHOLD;
 	timeout2 = now + 30000;
@@ -79,7 +84,6 @@ void motor_ref()
 		}
 		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
 			last = !last;
-			time_between_enc = now - timeout + REF_STALL_THRESHOLD;
 			timeout = now + REF_STALL_THRESHOLD;
 		}
 		if (motor_run(now))
@@ -96,14 +100,15 @@ void motor_ref()
 
 	// turn forward
 	// use first fixed impulses to determine START position?
-	motor_dir = true;
+	motor_dir = FORWARD;
 	motor_position = 0;
-	next_debug = 8;
 	now = get_tick();
-	time_between_enc = now;
 	timeout = now + 2 * MAX_STALL_THRESHOLD;
 	timeout2 = now + 30000;
 	timeouts = 0; // timeout can't go beyond/near 65535/2. so use this counter
+	mean_start = now;
+	mean_count = MEAN_COUNT;
+	lowest = UINT16_MAX;
 	while (true) {
 		now = get_tick();
 		if (tick_elapsed(now, timeout))
@@ -123,14 +128,81 @@ void motor_ref()
 				mem[mem_in++] = diff & 0xff;
 				motor_position++;
 				timeout = now + 2 * MAX_STALL_THRESHOLD;
-				/*if (motor_position == next_debug) {
-					uint16_t diff = now - time_between_enc;
-					lcd_sync();
-					lcd_set_digit(LCD_DEG_1, (diff >> 8) & 0xf);
-					lcd_set_digit(LCD_DEG_2, (diff >> 4) & 0xf);
-					next_debug += 16;
-					time_between_enc = now;
-				}*/
+				if (--mean_count == 0) {
+					mean_count = MEAN_COUNT;
+					diff = now - mean_start;
+					mean_start = now;
+					if (diff < lowest)
+						lowest = diff;
+					if (diff < lowest + VALVE_START_THRESHOLD)
+						motor_position = 0;
+					else if (motor_position == MEAN_COUNT)
+						lcd_set_digit(LCD_TIME_1, 0xF);
+				}
+			}
+		}
+		if ((PF_IDR & BUTTON_LEFT) == 0)
+			motor_stop = true;
+		if (motor_run(now))
+			break;
+	}
+	motor_max_pos = motor_position;
+
+	lcd_sync();
+	lcd_set_digit(LCD_DEG_3, 2);
+
+	{
+		motor_position_t tmp = motor_position;
+		lcd_set_digit(LCD_TIME_4, tmp % 10);
+		tmp /= 10;
+		lcd_set_digit(LCD_TIME_3, tmp % 10);
+		tmp /= 10;
+		lcd_set_digit(LCD_TIME_2, tmp % 10);
+		tmp /= 10;
+		lcd_set_digit(LCD_TIME_1, tmp % 10);
+		tmp /= 10;
+	}
+
+	DISABLE_ENCODER();
+
+	if (!motor_error)
+		motor_move_to(0);
+}
+
+void motor_move_to(uint8_t percent)
+{
+	uint16_t timeout;
+	uint16_t now;
+	motor_position_t pos;
+	bool last;
+
+	ENABLE_ENCODER();
+
+	pos = ((uint16_t)percent * motor_max_pos + 50) / 100;
+
+	if (pos == motor_position)
+		return;
+	if (pos > motor_position)
+		motor_dir = FORWARD;
+	else
+		motor_dir = BACKWARD;
+
+	now = get_tick();
+	last = (bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC);
+	timeout = now + 2 * MAX_STALL_THRESHOLD;
+	while (true) {
+		now = get_tick();
+		if (tick_elapsed(now, timeout)) {
+			motor_stop = true;
+			motor_error = true;
+		}
+		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
+			last = !last;
+			if (last) { // only use rising edges
+				motor_position += motor_dir;
+				timeout = now + 2 * MAX_STALL_THRESHOLD;
+				if (motor_position == pos)
+					motor_stop = true;
 			}
 		}
 		if ((PF_IDR & BUTTON_LEFT) == 0)
@@ -139,11 +211,7 @@ void motor_ref()
 			break;
 	}
 
-	lcd_sync();
-	lcd_set_digit(LCD_DEG_3, 2);
-
 	DISABLE_ENCODER();
-
 }
 
 #define OFF 0
@@ -180,7 +248,7 @@ bool motor_run(uint16_t tick)
 	if (motor_state == Stop) {
 		motor_state = Turn;
 		motor_timeout = tick + 50; // run for at least 50ms
-		if (motor_dir)
+		if (motor_dir == FORWARD)
 			set_motor(HIGH, LOW);
 		else
 			set_motor(LOW, HIGH);
@@ -189,7 +257,7 @@ bool motor_run(uint16_t tick)
 		if (motor_stop) {
 			motor_state = CrossOver;
 			motor_timeout = tick + 20;
-			if (motor_dir)
+			if (motor_dir == FORWARD)
 				set_motor(OFF, LOW);
 			else
 				set_motor(LOW, OFF);
