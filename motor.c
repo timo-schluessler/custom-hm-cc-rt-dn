@@ -35,8 +35,11 @@ void motor_init()
 #define ENABLE_ENCODER() do { MOTOR_ENC_PORT_CR1 |= MOTOR_ENC; MOTOR_LED_PORT_ODR |= MOTOR_LED; } while(false);
 #define DISABLE_ENCODER() do { MOTOR_ENC_PORT_CR1 &= ~MOTOR_ENC; MOTOR_LED_PORT_ODR &= ~MOTOR_LED; } while(false);
 
-#define REF_STALL_THRESHOLD 50
-#define MAX_STALL_THRESHOLD 25
+#define REF_STALL_THRESHOLD 50 
+#define MAX_STALL_THRESHOLD 40
+#define MOVE_STALL_THRESHOLD 40
+#define BREAK_FREE_MARGIN 50
+
 #define MEAN_COUNT 12
 #define VALVE_START_THRESHOLD 15
 
@@ -66,10 +69,10 @@ void motor_ref()
 	// turn backward until we don't see an encoder impuls for longer than x
 	motor_dir = BACKWARD;
 	now = get_tick();
-	timeout = now + REF_STALL_THRESHOLD;
+	timeout = now + REF_STALL_THRESHOLD + BREAK_FREE_MARGIN;
 	timeout2 = now + 30000;
 	timeouts = 0;
-	last = false;
+	last = (bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC);
 	while (true) {
 		now = get_tick();
 		if (tick_elapsed(now, timeout))
@@ -103,7 +106,7 @@ void motor_ref()
 	motor_dir = FORWARD;
 	motor_position = 0;
 	now = get_tick();
-	timeout = now + 2 * MAX_STALL_THRESHOLD;
+	timeout = now + 2 * MAX_STALL_THRESHOLD + 2 * BREAK_FREE_MARGIN;
 	timeout2 = now + 30000;
 	timeouts = 0; // timeout can't go beyond/near 65535/2. so use this counter
 	mean_start = now;
@@ -123,7 +126,7 @@ void motor_ref()
 		}
 		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
 			last = !last;
-			if (last) { // only use rising edges
+			if (!last) { // only use falling edges (when sensor is on reflective part of counter wheel)
 				uint16_t diff = now - timeout + 2 * MAX_STALL_THRESHOLD;
 				mem[mem_in++] = diff & 0xff;
 				motor_position++;
@@ -189,7 +192,7 @@ void motor_move_to(uint8_t percent)
 
 	now = get_tick();
 	last = (bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC);
-	timeout = now + 2 * MAX_STALL_THRESHOLD;
+	timeout = now + 2 * MOVE_STALL_THRESHOLD + 2 * BREAK_FREE_MARGIN;
 	while (true) {
 		now = get_tick();
 		if (tick_elapsed(now, timeout)) {
@@ -198,9 +201,9 @@ void motor_move_to(uint8_t percent)
 		}
 		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
 			last = !last;
-			if (last) { // only use rising edges
+			if (!last) { // only use falling edges (when sensor is on reflective part of counter wheel)
 				motor_position += motor_dir;
-				timeout = now + 2 * MAX_STALL_THRESHOLD;
+				timeout = now + 2 * MOVE_STALL_THRESHOLD;
 				if (motor_position == pos)
 					motor_stop = true;
 			}
@@ -247,7 +250,7 @@ bool motor_run(uint16_t tick)
 	
 	if (motor_state == Stop) {
 		motor_state = Turn;
-		motor_timeout = tick + 50; // run for at least 50ms
+		motor_timeout = tick + 5; // run for at least 5ms
 		if (motor_dir == FORWARD)
 			set_motor(HIGH, LOW);
 		else
@@ -256,7 +259,7 @@ bool motor_run(uint16_t tick)
 	else if (motor_state == Turn) {
 		if (motor_stop) {
 			motor_state = CrossOver;
-			motor_timeout = tick + 20;
+			motor_timeout = tick + 5;
 			if (motor_dir == FORWARD)
 				set_motor(OFF, LOW);
 			else
@@ -267,7 +270,7 @@ bool motor_run(uint16_t tick)
 	else if (motor_state == CrossOver) {
 		set_motor(LOW, LOW);
 		motor_state = Recirculate;
-		motor_timeout = tick + 500;
+		motor_timeout = tick + 20;
 	}
 	else if (motor_state == Recirculate) {
 		motor_stop = false;
