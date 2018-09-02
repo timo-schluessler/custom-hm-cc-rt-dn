@@ -35,10 +35,11 @@ void motor_init()
 #define ENABLE_ENCODER() do { MOTOR_ENC_PORT_CR1 |= MOTOR_ENC; MOTOR_LED_PORT_ODR |= MOTOR_LED; } while(false);
 #define DISABLE_ENCODER() do { MOTOR_ENC_PORT_CR1 &= ~MOTOR_ENC; MOTOR_LED_PORT_ODR &= ~MOTOR_LED; } while(false);
 
-#define REF_STALL_THRESHOLD 50 
-#define MAX_STALL_THRESHOLD 40
+#define REF_STALL_THRESHOLD 25
+#define MAX_STALL_THRESHOLD 25
 #define MOVE_STALL_THRESHOLD 40
-#define BREAK_FREE_MARGIN 50
+#define BREAK_FREE_MARGIN 100
+#define START_PULSES 3 // the first rotation may take BREAK_FREE_MARGIN of additional time
 
 #define MEAN_COUNT 12
 #define VALVE_START_THRESHOLD 15
@@ -46,14 +47,15 @@ void motor_init()
 motor_position_t motor_max_pos;
 bool motor_error;
 
-uint8_t mem[1400];
-uint16_t mem_in = 0;
+//uint8_t mem[1400];
+//uint16_t mem_in = 0;
 
 void motor_ref()
 {
 	uint16_t lowest;
 	uint16_t mean_start;
 	uint8_t mean_count;
+	uint8_t start_count;
 	uint16_t now;
 	uint16_t timeout;
 	uint16_t timeout2;
@@ -68,6 +70,7 @@ void motor_ref()
 
 	// turn backward until we don't see an encoder impuls for longer than x
 	motor_dir = BACKWARD;
+	start_count = START_PULSES - 1;
 	now = get_tick();
 	timeout = now + REF_STALL_THRESHOLD + BREAK_FREE_MARGIN;
 	timeout2 = now + 30000;
@@ -88,6 +91,10 @@ void motor_ref()
 		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
 			last = !last;
 			timeout = now + REF_STALL_THRESHOLD;
+			if (start_count) {
+				start_count--;
+				timeout += BREAK_FREE_MARGIN;
+			}
 		}
 		if (motor_run(now))
 			break;
@@ -102,9 +109,9 @@ void motor_ref()
 	lcd_set_digit(LCD_DEG_3, 1);
 
 	// turn forward
-	// use first fixed impulses to determine START position?
 	motor_dir = FORWARD;
 	motor_position = 0;
+	start_count = START_PULSES - 1;
 	now = get_tick();
 	timeout = now + 2 * MAX_STALL_THRESHOLD + 2 * BREAK_FREE_MARGIN;
 	timeout2 = now + 30000;
@@ -127,10 +134,15 @@ void motor_ref()
 		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
 			last = !last;
 			if (!last) { // only use falling edges (when sensor is on reflective part of counter wheel)
-				uint16_t diff = now - timeout + 2 * MAX_STALL_THRESHOLD;
-				mem[mem_in++] = diff & 0xff;
+				uint16_t diff;
+				//diff = now - timeout + 2 * MAX_STALL_THRESHOLD;
+				//mem[mem_in++] = diff & 0xff;
 				motor_position++;
 				timeout = now + 2 * MAX_STALL_THRESHOLD;
+				if (start_count) {
+					start_count--;
+					timeout += 2 * BREAK_FREE_MARGIN;
+				}
 				if (--mean_count == 0) {
 					mean_count = MEAN_COUNT;
 					diff = now - mean_start;
@@ -167,21 +179,42 @@ void motor_ref()
 	}
 
 	DISABLE_ENCODER();
-
-	if (!motor_error)
-		motor_move_to(0);
 }
 
+// move motor to have a valve opening of percent percent
 void motor_move_to(uint8_t percent)
 {
 	uint16_t timeout;
 	uint16_t now;
+	motor_position_t threshold;
+	uint8_t start_count;
 	motor_position_t pos;
 	bool last;
 
 	ENABLE_ENCODER();
 
-	pos = ((uint16_t)percent * motor_max_pos + 50) / 100;
+	if (percent == 0) { // move until stop
+		threshold = 2 * MAX_STALL_THRESHOLD;
+		pos = INT16_MAX;
+	} else {
+		// a * b / c
+		// a * (b1 * 256 + b2) / c
+		// (a * b1 * 256 + a * b2) / c
+		// a * b1 / c * 256 + a * b2 / c
+		uint16_t high = (uint16_t)percent * (motor_max_pos >> 8);
+		uint16_t low = (uint16_t)percent * (motor_max_pos & 0xff);
+		high += low >> 8;
+		low &= 0xff;
+		pos = high / 100;
+		high -= pos * 100;
+		pos <<= 8;
+		low += high << 8;
+		pos += (low + 50) / 100;
+		pos = motor_max_pos - pos;
+
+		//pos = motor_max_pos - ((uint32_t)percent * motor_max_pos + 50) / 100;
+		threshold = 2 * MOVE_STALL_THRESHOLD;
+	}
 
 	if (pos == motor_position)
 		return;
@@ -190,20 +223,26 @@ void motor_move_to(uint8_t percent)
 	else
 		motor_dir = BACKWARD;
 
+	start_count = START_PULSES - 1;
 	now = get_tick();
 	last = (bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC);
-	timeout = now + 2 * MOVE_STALL_THRESHOLD + 2 * BREAK_FREE_MARGIN;
+	timeout = now + threshold + 2 * BREAK_FREE_MARGIN;
 	while (true) {
 		now = get_tick();
 		if (tick_elapsed(now, timeout)) {
 			motor_stop = true;
-			motor_error = true;
+			if (percent != 0) // only error if we were not moving to 0% (on block)
+				motor_error = true;
 		}
 		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
 			last = !last;
 			if (!last) { // only use falling edges (when sensor is on reflective part of counter wheel)
 				motor_position += motor_dir;
-				timeout = now + 2 * MOVE_STALL_THRESHOLD;
+				timeout = now + threshold;
+				if (start_count) {
+					start_count--;
+					timeout += 2 * BREAK_FREE_MARGIN;
+				}
 				if (motor_position == pos)
 					motor_stop = true;
 			}
@@ -212,6 +251,10 @@ void motor_move_to(uint8_t percent)
 			motor_stop = true;
 		if (motor_run(now))
 			break;
+	}
+	if (percent == 0) { // remember newly found max_pos
+		motor_max_pos = motor_position;
+		// TODO check for too low motor max position and generate error
 	}
 
 	DISABLE_ENCODER();
@@ -241,22 +284,26 @@ void set_motor(int8_t left, int8_t right)
 	PD_ODR = odr;
 }
 
-uint16_t motor_timeout = 1024;
-enum { Stop, Turn, CrossOver, Recirculate } motor_state = Stop;
+uint16_t motor_timeout;
+enum { Idle, Turn, CrossOver, Recirculate, Stop } motor_state = Idle;
 bool motor_run(uint16_t tick)
 {
-	if (!tick_elapsed(tick, motor_timeout))
-		return false;
-	
-	if (motor_state == Stop) {
+	// don't check tick for this state because it may have overflowed (several times)!
+	if (motor_state == Idle) {
 		motor_state = Turn;
 		motor_timeout = tick + 5; // run for at least 5ms
 		if (motor_dir == FORWARD)
 			set_motor(HIGH, LOW);
 		else
 			set_motor(LOW, HIGH);
+
+		return false;
 	}
-	else if (motor_state == Turn) {
+
+	if (!tick_elapsed(tick, motor_timeout))
+		return false;
+	
+	if (motor_state == Turn) {
 		if (motor_stop) {
 			motor_state = CrossOver;
 			motor_timeout = tick + 5;
@@ -273,10 +320,13 @@ bool motor_run(uint16_t tick)
 		motor_timeout = tick + 20;
 	}
 	else if (motor_state == Recirculate) {
-		motor_stop = false;
 		motor_state = Stop;
 		set_motor(OFF, OFF);
 		motor_timeout = tick + 10; // 10ms before turning on again
+	}
+	else if (motor_state == Stop) {
+		motor_state = Idle;
+		motor_stop = false;
 
 		return true; // movement finished
 	}

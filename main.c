@@ -77,6 +77,19 @@ void main()
 
 	while (true) {
 		lcd_test();
+		if ((PF_IDR & BUTTON_LEFT) == 0) {
+			for (;;) {
+				volatile uint8_t A = PF_IDR;
+				A &= BUTTON_LEFT;
+				if (A)
+					break;
+			}
+			motor_move_to(0);
+		}
+		if ((PF_IDR & BUTTON_MIDDLE) == 0)
+			motor_move_to(2);
+		if ((PF_IDR & BUTTON_RIGHT) == 0)
+			motor_move_to(100);
 		//radio_poll();
 	}
 }

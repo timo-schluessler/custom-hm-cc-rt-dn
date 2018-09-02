@@ -1,7 +1,7 @@
 #ifndef MOTOR_INCLUDED
 #define MOTOR_INCLUDED
 
-typedef uint16_t motor_position_t;
+typedef int16_t motor_position_t;
 
 void motor_init();
 void motor_ref();
