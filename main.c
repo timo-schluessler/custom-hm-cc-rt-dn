@@ -4,7 +4,7 @@
 
 #include "stm8l.h"
 
-#define F_CPU 125000UL
+#define F_CPU 500000UL
 
 #define MAX_PAYLOAD 10
 
@@ -21,6 +21,7 @@
 #define BUTTON_RIGHT (1u<<6)
 
 void lcd_test();
+void measure_temperature();
 
 //#define USE_LSE
 
@@ -44,13 +45,13 @@ void main()
 
 	// f_sysclk = 32768Hz
 #else
-	// clock divider to 128
-	CLK_CKDIVR = 0b111; // TODO for test only
+	// clock divider to 32
+	CLK_CKDIVR = 0b101;
 	// enable low speed external manually (it's needed for RTC clk which is needed for LCD clk)
 	CLK_ECKCR |= CLK_ECKCR_LSEON;
 	while (!(CLK_ECKCR & CLK_ECKCR_LSERDY))
 		;
-	// f_sysclk = 16MHz / 128 = 125kHz
+	// f_sysclk = 16MHz / 128 = 500kHz // must be higher than 320kHz for ADC1!
 #endif
 
 	// configure RTC clock
@@ -73,7 +74,7 @@ void main()
 	spi_disable();
 	//radio_enter_receive(14);
 
-	motor_ref();
+	//motor_ref();
 
 	while (true) {
 		lcd_test();
@@ -91,6 +92,7 @@ void main()
 		if ((PF_IDR & BUTTON_RIGHT) == 0)
 			motor_move_to(100);
 		//radio_poll();
+		measure_temperature();
 	}
 }
 
@@ -126,3 +128,26 @@ void lcd_test()
 
 #include "motor.c"
 
+volatile uint16_t temp_test;
+void measure_temperature()
+{
+	uint32_t sum = 0;
+
+	CLK_PCKENR2 |= CLK_PCKENR2_ADC1;
+#define ADC1_CR1_VALUE (ADC_CR1_ADON | (0b0 * ADC_CR1_RES0)) // enable ad, 12bit resolution
+	ADC1_CR1 = ADC1_CR1_VALUE;
+	//ADC1_CR2 = 0; // system clock as adc clock, no ext trigger, 4 ADC clocks sampling time
+	ADC1_SQR1 = ADC_SQR1_CHSEL_S25; // select channel 25 which is PF1
+	ADC1_SR = 0; // reset EOC flag
+
+	for (int i = 0; i < 256; i++) {
+		ADC1_CR1 = ADC1_CR1_VALUE | ADC_CR1_START; // start conversion
+		while (!(ADC1_SR & ADC_SR_EOC))
+			;
+		sum += ((uint16_t)ADC1_DRH << 8) | ADC1_DRL;
+	}
+	temp_test = sum >> 8;
+
+	ADC1_CR1 = 0; // disable ad
+	CLK_PCKENR2 &= ~CLK_PCKENR2_ADC1;
+}

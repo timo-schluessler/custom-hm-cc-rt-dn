@@ -124,6 +124,7 @@
 #define CLK_PCKENR1_SPI (1u<<4)
 
 #define CLK_PCKENR2_LCD (1u<<3)
+#define CLK_PCKENR2_ADC1 (1u<<0)
 
 #define CLK_ICKCR_HSION (1u<<0)
 
@@ -338,3 +339,54 @@
 #define SPI_SR_MODF (1u<<5)
 #define SPI_SR_OVR (1u<<6)
 #define SPI_SR_BSY (1u<<7)
+
+/* *** ADC1 *** */
+#define ADC1_CR1 (*(__IO uint8_t*)0x5340)
+#define ADC1_CR2 (*(__IO uint8_t*)0x5341)
+#define ADC1_CR3 (*(__IO uint8_t*)0x5342)
+#define ADC1_SR (*(__IO uint8_t*)0x5343)
+#define ADC1_DRH (*(__IO uint8_t*)0x5344)
+#define ADC1_DRL (*(__IO uint8_t*)0x5345)
+#define ADC1_HTRH (*(__IO uint8_t*)0x5346)
+#define ADC1_HTRL (*(__IO uint8_t*)0x5347)
+#define ADC1_LTRH (*(__IO uint8_t*)0x5348)
+#define ADC1_LTRL (*(__IO uint8_t*)0x5349)
+#define ADC1_SQR1 (*(__IO uint8_t*)0x534A)
+#define ADC1_SQR2 (*(__IO uint8_t*)0x534B)
+#define ADC1_SQR3 (*(__IO uint8_t*)0x534C)
+#define ADC1_SQR4 (*(__IO uint8_t*)0x534D)
+#define ADC1_TRIGR1 (*(__IO uint8_t*)0x534E)
+#define ADC1_TRIGR2 (*(__IO uint8_t*)0x534F)
+#define ADC1_TRIGR3 (*(__IO uint8_t*)0x5350)
+#define ADC1_TRIGR4 (*(__IO uint8_t*)0x5351)
+
+#define ADC_CR1_ADON (1u<<0)
+#define ADC_CR1_START (1u<<1)
+#define ADC_CR1_CONT (1u<<2)
+#define ADC_CR1_EOCIE (1u<<3)
+#define ADC_CR1_AWDIE (1u<<4)
+#define ADC_CR1_RES0 (1u<<5)
+#define ADC_CR1_RES1 (1u<<6)
+#define ADC_CR1_OVERIE (1u<<7)
+
+#define ADC_CR2_SMTP1 (1u<<0)
+#define ADC_CR2_EXTSEL0 (1u<<3)
+#define ADC_CR2_EXTSEL1 (1u<<4)
+#define ADC_CR2_TRIG_EDGE0 (1u<<5)
+#define ADC_CR2_TRIG_EDGE1 (1u<<6)
+#define ADC_CR2_PRESC (1u<<7)
+
+#define ADC_CR3_CHSEL (1u<<0)
+#define ADC_CR3_SMTP2 (1u<<5)
+
+#define ADC_SR_EOC (1u<<0)
+#define ADC_SR_AWD (1u<<1)
+#define ADC_SR_OVER (1u<<2)
+
+#define ADC_SQR1_CHSEL_S24 (1u<<0)
+#define ADC_SQR1_CHSEL_S25 (1u<<1)
+#define ADC_SQR1_CHSEL_S26 (1u<<2)
+#define ADC_SQR1_CHSEL_S27 (1u<<3)
+#define ADC_SQR1_CHSEL_SVREFINT (1u<<4)
+#define ADC_SQR1_CHSEL_STS (1u<<5)
+#define ADC_SQR1_DMAOFF (1u<<7)
