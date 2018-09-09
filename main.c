@@ -20,6 +20,8 @@
 #define BUTTON_MIDDLE (1u<<5)
 #define BUTTON_RIGHT (1u<<6)
 
+#define TEMP_SENSOR_OUT (1u<<1) // PF1
+
 void lcd_test();
 void measure_temperature();
 
@@ -62,11 +64,13 @@ void main()
 	lcd_init();
 	tick_init();
 
-	PF_CR1 = LEDS; // push-pull
-	PF_DDR = LEDS; // output
+	PF_CR1 = LEDS | TEMP_SENSOR_OUT; // push-pull
+	PF_DDR = LEDS | TEMP_SENSOR_OUT; // output
 	//PF_ODR |= LEDS; // enable backlight
 
 	PF_CR1 |= BUTTON_LEFT | BUTTON_MIDDLE | BUTTON_RIGHT; // enable pullups
+
+	ADC1_TRIGR1 = ADC_TRIGR1_TRIG24; // disable schmitt trigger for analog temperature input
 
 	motor_init();
 
@@ -129,25 +133,41 @@ void lcd_test()
 #include "motor.c"
 
 volatile uint16_t temp_test;
+volatile float temp;
+#include <math.h>
 void measure_temperature()
 {
 	uint32_t sum = 0;
 
+	PF_ODR |= TEMP_SENSOR_OUT;
 	CLK_PCKENR2 |= CLK_PCKENR2_ADC1;
 #define ADC1_CR1_VALUE (ADC_CR1_ADON | (0b0 * ADC_CR1_RES0)) // enable ad, 12bit resolution
 	ADC1_CR1 = ADC1_CR1_VALUE;
 	//ADC1_CR2 = 0; // system clock as adc clock, no ext trigger, 4 ADC clocks sampling time
-	ADC1_SQR1 = ADC_SQR1_CHSEL_S25; // select channel 25 which is PF1
+	ADC1_SQR1 = ADC_SQR1_CHSEL_S24; // select channel 24 which is PF0
 	ADC1_SR = 0; // reset EOC flag
 
-	for (int i = 0; i < 256; i++) {
+	for (uint8_t i = 0; ;) {
 		ADC1_CR1 = ADC1_CR1_VALUE | ADC_CR1_START; // start conversion
 		while (!(ADC1_SR & ADC_SR_EOC))
 			;
 		sum += ((uint16_t)ADC1_DRH << 8) | ADC1_DRL;
+		if (++i == 0) // do the check here at end, so in fact we summed it up 256 times
+			break;
 	}
 	temp_test = sum >> 8;
 
+	PF_ODR &= ~TEMP_SENSOR_OUT;
 	ADC1_CR1 = 0; // disable ad
 	CLK_PCKENR2 &= ~CLK_PCKENR2_ADC1;
+
+	{
+		// TODO use a lookup table of some kind?
+#define BETA_INV .0002531645 // 1/3950
+#define K25_INV .00335401643468052993 // 1/298.15 = 1/(25°C.) = 1/(25K + 273.15K)
+		float tmp = temp_test / (float)(4096 - temp_test); // = R / R_0
+		temp = 1.0/(K25_INV + BETA_INV * logf(tmp)) - 273.15;
+	}
+
+
 }

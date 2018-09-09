@@ -390,3 +390,6 @@
 #define ADC_SQR1_CHSEL_SVREFINT (1u<<4)
 #define ADC_SQR1_CHSEL_STS (1u<<5)
 #define ADC_SQR1_DMAOFF (1u<<7)
+
+#define ADC_TRIGR1_TRIG24 (1u<<0)
+#define ADC_TRIGR1_TRIG25 (1u<<1)
