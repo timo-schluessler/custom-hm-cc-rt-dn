@@ -13,6 +13,7 @@
 #include "delay.h"
 #include "spi.h"
 #include "motor.h"
+#include "rtc.h"
 
 #define LEDS (1u<<7)
 
@@ -74,6 +75,8 @@ void main()
 
 	motor_init();
 
+	rtc_init();
+
 	radio_init();
 	spi_disable();
 	//radio_enter_receive(14);
@@ -97,6 +100,8 @@ void main()
 			motor_move_to(100);
 		//radio_poll();
 		measure_temperature();
+		lcd_data.value++;
+		rtc_sleep(5);
 	}
 }
 
@@ -165,8 +170,9 @@ void measure_temperature()
 		// TODO use a lookup table of some kind?
 #define BETA_INV .0002531645 // 1/3950
 #define K25_INV .00335401643468052993 // 1/298.15 = 1/(25°C.) = 1/(25K + 273.15K)
-		float tmp = temp_test / (float)(4096 - temp_test); // = R / R_0
-		temp = 1.0/(K25_INV + BETA_INV * logf(tmp)) - 273.15;
+		// theese two lines increase code size by 3.3kb
+		//float tmp = temp_test / (float)(4096 - temp_test); // = R / R_0
+		//temp = 1.0/(K25_INV + BETA_INV * logf(tmp)) - 273.15;
 	}
 
 
