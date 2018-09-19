@@ -123,8 +123,9 @@
 #define CLK_PCKENR1_TIM2 (1u<<0)
 #define CLK_PCKENR1_SPI (1u<<4)
 
-#define CLK_PCKENR2_LCD (1u<<3)
 #define CLK_PCKENR2_ADC1 (1u<<0)
+#define CLK_PCKENR2_RTC (1u<<2)
+#define CLK_PCKENR2_LCD (1u<<3)
 
 #define CLK_ICKCR_HSION (1u<<0)
 
@@ -168,6 +169,16 @@
 #define RTC_TCR2 (*(__IO uint8_t*)0x516D)
 
 #define RTC_CR1_WUCKSEL (1u<<0)
+
+#define RTC_CR2_WUTE (1u<<2)
+#define RTC_CR2_WUTIE (1u<<6)
+
+#define RTC_ISR1_WUTWF (1u<<2)
+#define RTC_ISR1_INITF (1u<<6)
+#define RTC_ISR1_INIT (1u<<7)
+
+#define RTC_ISR2_WUTF (1u<<2)
+
 /* --- LCD --- */
 #define LCD_CR1 (*(__IO uint8_t*)0x5400)
 #define LCD_CR2 (*(__IO uint8_t*)0x5401)

@@ -30,6 +30,13 @@ void measure_temperature();
 
 #include "time.h"
 
+typedef struct {
+	uint16_t timeout_lcd;
+	uint8_t value;
+	uint8_t last_value;
+} lcd_t;
+lcd_t lcd_data = { 0 };
+
 void main()
 {
 	// low speed external clock prevents debugger from working :(
@@ -85,6 +92,7 @@ void main()
 
 	while (true) {
 		lcd_test();
+		lcd_data.value++;
 		if ((PF_IDR & BUTTON_LEFT) == 0) {
 			for (;;) {
 				volatile uint8_t A = PF_IDR;
@@ -100,17 +108,10 @@ void main()
 			motor_move_to(100);
 		//radio_poll();
 		measure_temperature();
-		lcd_data.value++;
+		delay_ms(1000);
 		rtc_sleep(5);
 	}
 }
-
-typedef struct {
-	uint16_t timeout_lcd;
-	uint8_t value;
-	uint8_t last_value;
-} lcd_t;
-lcd_t lcd_data = { 0 };
 
 #include "si4430.c"
 
@@ -177,3 +178,5 @@ void measure_temperature()
 
 
 }
+
+#include "rtc.c"

@@ -13,6 +13,7 @@
 #include <stdint.h>
 void lcd_init();
 void lcd_set_digit(uint8_t digit, uint8_t value);
+void lcd_clear();
 void lcd_sync();
 
 #endif

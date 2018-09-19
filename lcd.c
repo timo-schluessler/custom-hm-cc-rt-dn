@@ -122,6 +122,13 @@ void lcd_set_digit(uint8_t digit, uint8_t value)
 	}
 }
 
+void lcd_clear()
+{
+	lcd_sync();
+	for (uint8_t i = 0; i < LCD_RAM_SIZE; i++)
+		LCD_RAM[i] = 0;
+}
+
 void lcd_sync()
 {
 	LCD_CR3 |= LCD_CR3_SOFC;
