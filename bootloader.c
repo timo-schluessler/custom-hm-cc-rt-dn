@@ -27,6 +27,7 @@ void (*erase_unused_blocks)(uint16_t addr);
 void copy_functions_to_ram();
 bool app_crc_ok();
 bool bootloader_buttons_pressed();
+void copy_vector_table();
 
 #define EEPROM_START 0x1000
 const uint8_t * hm_id = EEPROM_START;
@@ -39,7 +40,7 @@ const uint8_t * hm_serial = EEPROM_START + 3;
 
 #include "lcd.c"
 
-#define BLOCK_COUNT (512 - 32) // 64kb - 8kb (bootloader) = 128 * (512 - 16)
+#define BLOCK_COUNT (512 - 64) // 64kb - 8kb (bootloader) = 128 * (512 - 64)
 #define BLOCKSIZE 128
 #define FLASH_START 0x8000
 #define MAIN_START (FLASH_START + 0x2000)
@@ -153,7 +154,7 @@ void main()
 			lcd_sync();
 			lcd_set_digit(LCD_DEG_1, (3 + block) & 0xf);
 
-			(*write_flash_block)((uint16_t)block * BLOCKSIZE);
+			(*write_flash_block)((uint16_t)block * BLOCKSIZE + (MAIN_START - FLASH_START));
 
 			send_response(&packet, true);
 			block++;
@@ -167,6 +168,7 @@ void main()
 		// erase the remaining flash space
 		// this is needed to find [ 0x00 crc ] when checking crc
 		(*erase_unused_blocks)((uint16_t)block * BLOCKSIZE);
+		copy_vector_table();
 	}
 
 
@@ -364,7 +366,7 @@ void write_flash_block_flash(uint16_t off)
 	ld		(0x00, sp), a
 00002$:
 	ld		a, (x)
-	ldf	(MAIN_START, y), a // use ldf because MAIN_START + 64kb is > 0x10000
+	ldf	(FLASH_START, y), a // use ldf because FLASH_START + 64kb is > 0x10000
 	incw	x
 	incw	y
 	dec	(0x00, sp)
@@ -564,9 +566,25 @@ bool bootloader_buttons_pressed()
 }
 
 
+// this is needed to keep the complete interrupt vector table free (we copy over the main program table)
+void highest_interrupt() __interrupt(29)
+{
+	__asm__ ("nop\n");
+}
 
+// copy vector table from main app to FLASH_START where the processor looks up interrupt vectors
+void copy_vector_table()
+{
+	// get main app vector table
+	for (uint8_t i = BLOCKSIZE; i != 0; --i)
+		buf[i] = ((uint8_t*)MAIN_START)[i];
 
+	// but don't use their reset vector! use ours!!!
+	buf[0] = ((uint8_t*)FLASH_START)[0];
+	buf[1] = ((uint8_t*)FLASH_START)[1];
+	buf[2] = ((uint8_t*)FLASH_START)[2];
+	buf[3] = ((uint8_t*)FLASH_START)[3];
 
-
-
-
+	// write to flash start (vector table)
+	(*write_flash_block)(0);
+}
