@@ -22,8 +22,6 @@ void debug(uint16_t nr);
 void send_response(as_packet_t * recvd, bool ack);
 bool receive_cb(uint16_t timeout_at);
 bool receive_block(uint16_t timeout_at, uint8_t expected_counter);
-void (*write_flash_block)(uint16_t addr);
-void (*erase_unused_blocks)(uint16_t addr);
 void copy_functions_to_ram();
 bool app_crc_ok();
 bool bootloader_buttons_pressed();
@@ -43,7 +41,8 @@ const uint8_t * hm_serial = EEPROM_START + 3;
 #define BLOCK_COUNT (512 - 64) // 64kb - 8kb (bootloader) = 128 * (512 - 64)
 #define BLOCKSIZE 128
 #define FLASH_START 0x8000
-#define MAIN_START (FLASH_START + 0x2000)
+#define BOOTLOADER_SIZE 0x2000
+#define MAIN_START FLASH_START
 uint8_t buf[BLOCKSIZE];
 
 static inline void start_main()
@@ -140,7 +139,7 @@ void main()
 
 	{
 #define BLOCK_TIMEOUT 1500
-		uint16_t block = 0;
+		uint16_t block = 0; // don't change anything here without verifying that block stays in (0x5f,SP)!!!
 		uint8_t expected_counter = packet.counter + 1;
 		uint16_t timeout = get_tick() + BLOCK_TIMEOUT;
 		
@@ -154,7 +153,23 @@ void main()
 			lcd_sync();
 			lcd_set_digit(LCD_DEG_1, (3 + block) & 0xf);
 
-			(*write_flash_block)((uint16_t)block * BLOCKSIZE + (MAIN_START - FLASH_START));
+			// TODO keep our reset vector in first block!!!
+			// TODO check if 0x5f is still correct? i saw 0x60?
+
+			//(*write_flash_block)((uint16_t)block * BLOCKSIZE); // this doesn't work because of the far call!
+			__asm
+			ldw	X, (0x5f,SP) // block. ATTENTION: if changing anything above, check disassembling if block stays in this position!
+			sllw	X // << 7 equals * BLOCKSIZE
+			sllw	X
+			sllw	X
+			sllw	X
+			sllw	X
+			sllw	X
+			sllw	X
+			pushw	X
+			callf	_write_flash_block_ram
+			popw	X
+			__endasm;
 
 			send_response(&packet, true);
 			block++;
@@ -167,8 +182,20 @@ void main()
 
 		// erase the remaining flash space
 		// this is needed to find [ 0x00 crc ] when checking crc
-		(*erase_unused_blocks)((uint16_t)block * BLOCKSIZE);
-		copy_vector_table();
+		//(*erase_unused_blocks)((uint16_t)block * BLOCKSIZE);
+		__asm
+		ldw	X, (0x5f,SP) // block. ATTENTION: if changing anything above, check disassembling if block stays in this position!
+		sllw	X // << 7 equals * BLOCKSIZE
+		sllw	X
+		sllw	X
+		sllw	X
+		sllw	X
+		sllw	X
+		sllw	X
+		pushw	X
+		callf	_erase_unused_blocks_ram
+		popw	X
+		__endasm;
 	}
 
 
@@ -317,15 +344,16 @@ void erase_unused_blocks_flash(uint16_t start_offset)
 
 	// load start block address
 	ldw	x, (0x3, sp)
-	addw	x, #(MAIN_START - FLASH_START) // add this offset so we can easily check x == 0 below for end condition
+	//addw	x, #(MAIN_START - FLASH_START) // add this offset so we can easily check x == 0 below for end condition
+	addw	x, #BOOTLOADER_SIZE // add this offset so we can easily check x == 0 below for end condition
 	clrw	y
 
 00002$:
 	// enable block erasing
 	mov	0x5051, #0x20 // FLASH_CR2 <- FLASH_CR2_ERASE
 
-	ldw	(FLASH_START + 0, x), y
-	ldw	(FLASH_START + 2, x), y
+	ldw	(FLASH_START - BOOTLOADER_SIZE + 0, x), y
+	ldw	(FLASH_START - BOOTLOADER_SIZE + 2, x), y
 
 	// wait for completion
 00003$:
@@ -339,6 +367,7 @@ void erase_unused_blocks_flash(uint16_t start_offset)
 	// lock flash programming
 	bres	0x5054, #1
 
+	retf // return far!
 	__endasm;
 }
 
@@ -381,6 +410,7 @@ void write_flash_block_flash(uint16_t off)
 	// lock flash programming
 	bres	0x5054, #1
 
+	retf // return far!
 	__endasm;
 
 
@@ -414,19 +444,15 @@ void copy_functions_to_ram()
 	for (uint8_t i = 0; i < sizeof(write_flash_block_ram); i++)
 		write_flash_block_ram[i] = ((uint8_t*)&write_flash_block_flash)[i];
 
-	write_flash_block = (void (*)(uint16_t))write_flash_block_ram;
-
 	for (uint8_t i = 0; i < sizeof(erase_unused_blocks_ram); i++)
 		erase_unused_blocks_ram[i] = ((uint8_t*)&erase_unused_blocks_flash)[i];
-
-	erase_unused_blocks = (void (*)(uint16_t))erase_unused_blocks_ram;
 }
 
 bool app_crc_ok()
 {
 	// search for flash block that ends with 0x55 crc crc. that is end of main program
 	__asm
-	ldw	x, #(0xfffd - (MAIN_START - FLASH_START)) // third last byte of block: equals 0x55 in last app block
+	ldw	x, #(0xfffd - BOOTLOADER_SIZE) // third last byte of block: equals 0x55 in last app block
 	ld		a, #0x55
 
 	// start at end of flash until MAIN_START
@@ -563,28 +589,4 @@ bool bootloader_buttons_pressed()
 	PF_CR1 |= (1<<4) | (1<<6); // enable pullups
 	delay_ms(100);
 	return (PF_IDR & ((1<<4) | (1<<6))) == 0;
-}
-
-
-// this is needed to keep the complete interrupt vector table free (we copy over the main program table)
-void highest_interrupt() __interrupt(29)
-{
-	__asm__ ("nop\n");
-}
-
-// copy vector table from main app to FLASH_START where the processor looks up interrupt vectors
-void copy_vector_table()
-{
-	// get main app vector table
-	for (uint8_t i = BLOCKSIZE; i != 0; --i)
-		buf[i] = ((uint8_t*)MAIN_START)[i];
-
-	// but don't use their reset vector! use ours!!!
-	buf[0] = ((uint8_t*)FLASH_START)[0];
-	buf[1] = ((uint8_t*)FLASH_START)[1];
-	buf[2] = ((uint8_t*)FLASH_START)[2];
-	buf[3] = ((uint8_t*)FLASH_START)[3];
-
-	// write to flash start (vector table)
-	(*write_flash_block)(0);
 }
