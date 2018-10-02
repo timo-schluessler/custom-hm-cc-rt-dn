@@ -6,7 +6,7 @@
 
 #define F_CPU 500000UL
 
-#define MAX_PAYLOAD 10
+#define MAX_PAYLOAD 17
 
 #include "lcd.h"
 #include "radio.h"
@@ -85,14 +85,13 @@ void main()
 	rtc_init();
 
 	radio_init();
-	spi_disable();
+	//spi_disable();
 	//radio_enter_receive(14);
 
 	//motor_ref();
 
 	while (true) {
 		lcd_test();
-		lcd_data.value++;
 		if ((PF_IDR & BUTTON_LEFT) == 0) {
 			for (;;) {
 				volatile uint8_t A = PF_IDR;
@@ -104,12 +103,16 @@ void main()
 		}
 		if ((PF_IDR & BUTTON_MIDDLE) == 0)
 			motor_move_to(2);
-		if ((PF_IDR & BUTTON_RIGHT) == 0)
-			motor_move_to(100);
+		if ((PF_IDR & BUTTON_RIGHT) == 0) {
+			//motor_move_to(100);
+			lcd_data.value++;
+			as_send_device_info();
+			delay_ms(10);
+		}
 		//radio_poll();
-		measure_temperature();
-		delay_ms(1000);
-		rtc_sleep(5);
+		//measure_temperature();
+		//delay_ms(1000);
+		//rtc_sleep(5);
 	}
 }
 

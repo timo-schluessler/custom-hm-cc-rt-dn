@@ -1,6 +1,8 @@
 #define __IO volatile
 #include <stdint.h>
 
+#define EEPROM_START 0x1000
+
 /* SYSCFG remap */
 #define SYSCFG_RMPCR2 (*(__IO uint8_t*)0x509F)
 
