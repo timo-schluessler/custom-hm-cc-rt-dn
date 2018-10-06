@@ -29,5 +29,6 @@ typedef union {
 #define LIST_SERIAL(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5], (a)[6], (a)[7], (a)[8], (a)[9]
 
 void as_send_device_info();
+void as_listen();
 
 #endif // AS_INCLUDED

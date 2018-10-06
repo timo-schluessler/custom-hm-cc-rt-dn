@@ -55,6 +55,7 @@
 
 #define FLASH_CR2_PRG (1u<<0)
 
+#define FLASH_IAPSR_DUL (1u<<3)
 #define FLASH_IAPSR_EOP (1u<<2)
 #define FLASH_IAPSR_PUL (1u<<1)
 

@@ -6,7 +6,7 @@
 
 #define F_CPU 500000UL
 
-#define MAX_PAYLOAD 17
+#define MAX_PAYLOAD 60
 
 #include "lcd.h"
 #include "radio.h"
@@ -101,12 +101,16 @@ void main()
 			}
 			motor_move_to(0);
 		}
-		if ((PF_IDR & BUTTON_MIDDLE) == 0)
-			motor_move_to(2);
+		if ((PF_IDR & BUTTON_MIDDLE) == 0) {
+			delay_ms(10);
+			as_listen();
+			//motor_move_to(2);
+		}
 		if ((PF_IDR & BUTTON_RIGHT) == 0) {
 			//motor_move_to(100);
 			lcd_data.value++;
 			as_send_device_info();
+			as_listen();
 			delay_ms(10);
 		}
 		//radio_poll();
