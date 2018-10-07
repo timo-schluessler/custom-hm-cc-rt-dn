@@ -82,6 +82,8 @@ void as_listen()
 			__asm__ ("break");
 			continue; // not for us
 		}
+		if (!ID_IS_NULL(hm_master_id) && CMP_ID(packet.from, hm_master_id) != 0)
+			continue; // not from our master
 
 		if (packet.counter != as_cnt) {
 			//__asm__ ("break");
@@ -96,11 +98,14 @@ void as_listen()
 			ack = as_config_write(packet.payload[0], packet.length - AS_HEADER_SIZE - 2, packet.payload + 2);
 		else if (packet.type == 0x01 && packet.payload[1] == 0x06)
 			ack = as_config_end(packet.payload[0]);
+		// conf readback
+		// enter bootloader (bootloader enter detection?)
+		// send current data -> recieve valve position and sleep duration
 
 
 		if (packet.flags & AS_FLAG_BIDI) { // send answer
 			as_packet_t dev_info = { .length = 10, .counter = packet.counter, .flags = AS_FLAG_DEF, .type = 0x02,
-											 .from = { LIST_ID(hm_id) }, .to = { LIST_ID(hm_master_id) },
+											 .from = { LIST_ID(hm_id) }, .to = { LIST_ID(packet.from) },
 											 .payload = {
 												 ack ? 0x00 : 0x80
 										  }};

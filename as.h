@@ -25,6 +25,7 @@ typedef union {
 #define AS_FLAG_BIDI 0x20
 
 #define CMP_ID(a, b) (((a)[0] == (b)[0] && (a)[1] == (b)[1] && (a)[2] == (b)[2]) ? 0 : 1)
+#define ID_IS_NULL(a) (((a)[0] == 0x0 && (a)[1] == 0x0 && (a)[2] == 0x0) ? true : false)
 #define LIST_ID(a) (a)[0], (a)[1], (a)[2]
 #define LIST_SERIAL(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5], (a)[6], (a)[7], (a)[8], (a)[9]
 
