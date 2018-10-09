@@ -99,6 +99,12 @@
 
 #define wfe() __asm__("wfe")
 
+/* RESET */
+#define RST_CR (*(__IO uint8_t*)0x50B0)
+#define RST_SR (*(__IO uint8_t*)0x50B1)
+#define PWR_CSR1 (*(__IO uint8_t*)0x50B2)
+#define PWR_CSR2 (*(__IO uint8_t*)0x50B3)
+
 /* CLOCK */
 #define CLK_CKDIVR	(*(__IO uint8_t*)0x50C0)
 #define CLK_CRTCR	(*(__IO uint8_t*)0x50C1)

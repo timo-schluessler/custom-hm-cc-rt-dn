@@ -29,30 +29,82 @@ void encode(uint8_t len, uint8_t *buf)
 	buf[i] ^= buf2;
 }
 
-// TODO ifndef BOOTLOADER??
-
+#ifndef BOOTLOADER
+#define BOOTLOADER_START 0x16000
 static uint8_t as_cnt = 0;
 
 static bool as_config_start(uint8_t channel, uint8_t list);
 static bool as_config_write(uint8_t channel, uint8_t length, uint8_t * data);
 static bool as_config_end(uint8_t channel);
 
+#define MAX_ACK_LENGTH 10
+
+static as_packet_t ack_packet;
+bool as_send(as_packet_t * packet)
+{
+	bool ok = false;
+
+	//spi_enable();
+	for (int try = 0; try < 3; try++) {
+		uint16_t timeout_at;
+
+		radio_send(packet);
+		if (!radio_wait(get_tick() + 1000))
+			__asm__("break\n"); // TODO
+
+		if (!(packet->flags & AS_FLAG_BIDI)) {
+			ok = true;
+			break; // if not bidirectional don't wait for ack
+		}
+
+		timeout_at = get_tick() + 300;
+		while (!tick_elapsed(timeout_at)) {
+
+			radio_enter_receive(MAX_ACK_LENGTH);
+			if (!radio_wait(timeout_at))
+				continue;
+		
+			if (!radio_receive(&ack_packet, MAX_ACK_LENGTH)) {
+				__asm__ ("break");
+				continue; // if crc check fails, continue receiving
+			}
+			if (CMP_ID(ack_packet.to, packet->from) != 0) {
+				__asm__ ("break");
+				continue; // not for us
+			}
+			if (CMP_ID(ack_packet.from, packet->to) != 0)
+				continue; // not from our target
+			if (ack_packet.counter != packet->counter)
+				continue; // answer to wrong/another message
+			if (ack_packet.type != 0x02)
+				continue; // not an ack packet
+
+			ok = true;
+			break;
+		}
+		if (ok)
+			break;
+	}
+
+	//spi_disable();
+
+	return ok;
+}
+
 void as_send_device_info()
 {
 	as_packet_t dev_info = { .length = 26, .counter = as_cnt++, .flags = AS_FLAG_DEF, .type = 0x00,
 	                         .from = { LIST_ID(hm_id) }, .to = { LIST_ID(hm_master_id) },
 	                         .payload = {
-	                            0x00, // fw version?
+	                            0x01, // fw version
 	                            0x8F, 0xFD, // model version
 	                            LIST_SERIAL(hm_serial),
 	                            0x30, 0x00, 0x00, 0x00 // unknown?
 	                       }};
+	if (!ID_IS_NULL(hm_master_id))
+		dev_info.flags |= AS_FLAG_BIDI;
 
-	//spi_enable();
-	radio_send(&dev_info);
-	if (!radio_wait(get_tick() + 1000))
-		__asm__("break\n"); // TODO
-	//spi_disable();
+	as_send(&dev_info);
 }
 
 #define CONFIG_START_LENGTH 16
@@ -68,6 +120,7 @@ void as_listen()
 	while (!tick_elapsed(timeout_at)) {
 		bool ack = false;
 		as_packet_t packet;
+		bool enter_bootloader = false;
 
 		radio_enter_receive(MAX_LENGTH);
 		if (!radio_wait(timeout_at))
@@ -92,14 +145,18 @@ void as_listen()
 		}
 		as_cnt++;
 
-		if (packet.type == 0x01 && packet.payload[1] == 0x05)
+		if (packet.type == 0x01 && packet.length >= AS_HEADER_SIZE + 2 && packet.payload[1] == 0x05)
 			ack = as_config_start(packet.payload[0], packet.payload[6]); // packet.payload[2-5] is peer id if configuring peer config
-		else if (packet.type == 0x01 && packet.payload[1] == 0x08)
+		else if (packet.type == 0x01 && packet.length >= AS_HEADER_SIZE + 2 && packet.payload[1] == 0x08)
 			ack = as_config_write(packet.payload[0], packet.length - AS_HEADER_SIZE - 2, packet.payload + 2);
-		else if (packet.type == 0x01 && packet.payload[1] == 0x06)
+		else if (packet.type == 0x01 && packet.length >= AS_HEADER_SIZE + 2 && packet.payload[1] == 0x06)
 			ack = as_config_end(packet.payload[0]);
+		else if (packet.type == 0x11 && packet.length >= AS_HEADER_SIZE + 1 && packet.payload[1] == 0xca) { // enter bootloader
+			enter_bootloader = true;
+			ack = true;
+		}
+		
 		// conf readback
-		// enter bootloader (bootloader enter detection?)
 		// send current data -> recieve valve position and sleep duration
 
 
@@ -109,9 +166,21 @@ void as_listen()
 											 .payload = {
 												 ack ? 0x00 : 0x80
 										  }};
-			radio_send(&dev_info);
-			if (!radio_wait(get_tick() + 1000))
-				__asm__("break\n"); // TODO
+			as_send(&dev_info);
+		}
+
+		if (enter_bootloader) {
+			RST_SR = 0xff; // reset all reset sources to signal bootloader that we jumped into it
+			__asm
+			// manually load reset vector for bootloader (which is in high flash memory (address > 0xffff)
+			ldf	A, BOOTLOADER_START + 1
+			ld		1, A
+			ldf	A, BOOTLOADER_START + 2
+			ld		2, A
+			ldf	A, BOOTLOADER_START + 3
+			ld		3, A
+			jpf	[1]
+			__endasm;
 		}
 	}
 }
@@ -171,3 +240,5 @@ bool as_config_end(uint8_t channel)
 
 	return ack;
 }
+
+#endif // not BOOTLOADER
