@@ -30,7 +30,8 @@ void encode(uint8_t len, uint8_t *buf)
 }
 
 #ifndef BOOTLOADER
-#define BOOTLOADER_START 0x16000
+#define FLASH_START 0x8000
+
 static uint8_t as_cnt = 0;
 
 static bool as_config_start(uint8_t channel, uint8_t list);
@@ -172,14 +173,7 @@ void as_listen()
 		if (enter_bootloader) {
 			RST_SR = 0xff; // reset all reset sources to signal bootloader that we jumped into it
 			__asm
-			// manually load reset vector for bootloader (which is in high flash memory (address > 0xffff)
-			ldf	A, BOOTLOADER_START + 1
-			ld		1, A
-			ldf	A, BOOTLOADER_START + 2
-			ld		2, A
-			ldf	A, BOOTLOADER_START + 3
-			ld		3, A
-			jpf	[1]
+			jpf	[FLASH_START + 1] // jump far because bootloader is in upper memory region
 			__endasm;
 		}
 	}
