@@ -1,6 +1,8 @@
 #define __IO volatile
 #include <stdint.h>
 
+#define EEPROM_START 0x1000
+
 /* SYSCFG remap */
 #define SYSCFG_RMPCR2 (*(__IO uint8_t*)0x509F)
 
@@ -53,6 +55,7 @@
 
 #define FLASH_CR2_PRG (1u<<0)
 
+#define FLASH_IAPSR_DUL (1u<<3)
 #define FLASH_IAPSR_EOP (1u<<2)
 #define FLASH_IAPSR_PUL (1u<<1)
 
@@ -95,6 +98,12 @@
 #define WFE_CR2_EXTI_EV4 (1u<<0)
 
 #define wfe() __asm__("wfe")
+
+/* RESET */
+#define RST_CR (*(__IO uint8_t*)0x50B0)
+#define RST_SR (*(__IO uint8_t*)0x50B1)
+#define PWR_CSR1 (*(__IO uint8_t*)0x50B2)
+#define PWR_CSR2 (*(__IO uint8_t*)0x50B3)
 
 /* CLOCK */
 #define CLK_CKDIVR	(*(__IO uint8_t*)0x50C0)
