@@ -20,11 +20,13 @@ OFFSET=0x8000
 
 # use this without crc and faster updates
 LAST=$(srec_info main.ihx -intel -offset -${OFFSET} | tail -n 1 | sed -e 's/^.* - //g')
-LAST=$(echo "obase=16; ibase=16; ($LAST + 4 + 7F) / 80 * 80;" | bc -q) # add 1 to get length, add 1 for 00 before crc, add 2 for crc, round up to 128 bytes block size
-CODE_END=$(echo "obase=16; ibase=16; ${LAST} - 3;" | bc -q)
+LAST=$(echo "obase=16; ibase=16; ($LAST + 7 + 7F) / 80 * 80;" | bc -q) # add 1 to get length, add 3 for start address, add 1 for 55 before crc, add 2 for crc, round up to 128 bytes block size
+CODE_END=$(echo "obase=16; ibase=16; ${LAST} - 6;" | bc -q)
+VECTOR_END=$(echo "obase=16; ibase=16; ${LAST} - 3;" | bc -q)
 CRC=$(echo "obase=16; ibase=16; ${LAST} - 2;" | bc -q)
 echo last is now $LAST
-srec_cat '(' main.ihx -intel -offset -${OFFSET} -fill 0xFF 0 0x${CODE_END} -generate 0x${CODE_END} 0x${CRC} -constant 0x55 ')' -crc16_big_endian 0x${CRC} -polynomial ibm -o main.tmp -binary
+# copy reset vector to end of code. append 0x55 and crc, but omit first/original reset vector from crc
+srec_cat '(' main.ihx -intel -offset -${OFFSET} -fill 0xFF 0 0x${CODE_END} '(' main.ihx -intel -offset -${OFFSET} -crop 0x1 0x4 -offset 0x${CODE_END} -offset -0x1 ')' -generate 0x${VECTOR_END} 0x${CRC} -constant 0x55 ')' -crop 0x4 -crc16_big_endian 0x${CRC} -polynomial ibm -o main.tmp -binary
 php bin2eq3.php main.tmp main.eq3 128
 #rm main.tmp
 

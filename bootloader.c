@@ -35,18 +35,19 @@ void copy_vector_table();
 #define BOOTLOADER_SIZE 0x2000
 #define MAIN_START FLASH_START
 uint8_t buf[BLOCKSIZE];
+uint8_t start_address[3];
 
 static inline void start_main()
 {
 	__asm
-	jp [MAIN_START + 2]
+	jpf [_start_address]
 	__endasm;
 }
 
 static inline void restart()
 {
 	__asm
-	jp [0x8000 + 2]
+	jp [0x8000 + 2] // as we are already inside bootloader high memory, a (short) jp is ok here
 	__endasm;
 }
 
@@ -98,8 +99,7 @@ void main()
 	{
 		as_packet_t packet = { .data = {
 			0x14, 0x00, 0x00, 0x10, LIST_ID(hm_id), 0x00, 0x00, 0x00, 0x00,
-			hm_serial[0], hm_serial[1], hm_serial[2], hm_serial[3], hm_serial[4],
-			hm_serial[5], hm_serial[6], hm_serial[7], hm_serial[8], hm_serial[9]
+			LIST_SERIAL(hm_serial)
 		}};
 		radio_send(&packet);
 		if (!radio_wait(get_tick() + 1000))
@@ -144,12 +144,12 @@ void main()
 			lcd_sync();
 			lcd_set_digit(LCD_DEG_1, (3 + block) & 0xf);
 
-			// TODO keep our reset vector in first block!!!
-			// TODO check if 0x5f is still correct? i saw 0x60?
+			if (block == 0) // keep original reset vector, that points to us - the bootloader
+				memcpy(buf, (void*)FLASH_START, 4);
 
 			//(*write_flash_block)((uint16_t)block * BLOCKSIZE); // this doesn't work because of the far call!
 			__asm
-			ldw	X, (0x5f,SP) // block. ATTENTION: if changing anything above, check disassembling if block stays in this position!
+			ldw	X, (0x61,SP) // block. ATTENTION: if changing anything above, check disassembling if block stays in this position!
 			sllw	X // << 7 equals * BLOCKSIZE
 			sllw	X
 			sllw	X
@@ -175,7 +175,7 @@ void main()
 		// this is needed to find [ 0x00 crc ] when checking crc
 		//(*erase_unused_blocks)((uint16_t)block * BLOCKSIZE);
 		__asm
-		ldw	X, (0x5f,SP) // block. ATTENTION: if changing anything above, check disassembling if block stays in this position!
+		ldw	X, (0x61,SP) // block. ATTENTION: if changing anything above, check disassembling if block stays in this position!
 		sllw	X // << 7 equals * BLOCKSIZE
 		sllw	X
 		sllw	X
@@ -458,13 +458,21 @@ bool app_crc_ok()
 	ret
 
 00002$:
+	// remember start address which is 3 bytes in front of 0x55
+	ld		a, (MAIN_START - 3, x)
+	ld		_start_address + 0, a
+	ld		a, (MAIN_START - 2, x)
+	ld		_start_address + 1, a
+	ld		a, (MAIN_START - 1, x)
+	ld		_start_address + 2, a
+
 	// calculate crc
 	// stack: end offset[2], crc[2]
 	sub	sp, #3
 
 	addw	x, #3 // +3 to let app_end be the byte-offset after the last byte to be checked by crc
 	ldw	(0x00, sp), x // store end offset
-	clrw	y // cur offset
+	ldw	y, #0x4 // cur offset. start at 4th byte because those 4 bytes are reset vector which is replaced with bootloader reset vector
 	ldw	x, #0xffff
 	ldw	(0x02, sp), x // crc = 0xffff
 
