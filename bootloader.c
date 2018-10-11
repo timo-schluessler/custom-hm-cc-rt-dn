@@ -3,6 +3,12 @@
 
 #define F_CPU 16000000UL
 
+#define BOOTLOADER
+// inside the bootloader we can't use const uint8_t initialisation data because that results in the data staying in flash
+// say in (only) extended addressable flash. using far_initializer() and avoiding the const, we copy that data one using ldf
+// into memory. then the memory can always be addressed normally.
+#define CONSTMEM
+
 #define MAX_PAYLOAD 37
 
 #include "stm8l.h"
@@ -51,8 +57,25 @@ static inline void restart()
 	__endasm;
 }
 
+static void far_initializer()
+{
+	__asm
+	ldw	X, #l_INITIALIZER
+   jreq	00002$
+00001$:
+   ldf	A, (s_INITIALIZER - 1, X)
+   ld		(l_DATA, X) ,A
+   decw	X
+	jrne	00001$
+00002$:
+	__endasm;
+}
+
+
 void main()
 {
+	far_initializer();
+
 	// low speed external clock prevents debugger from working :(
 #ifdef USE_LSE
 	CLK_SWCR |= CLK_SWCR_SWEN;

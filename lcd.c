@@ -24,7 +24,7 @@ void lcd_init()
 }
 
 
-const uint8_t lcd_digits[] = {
+CONSTMEM uint8_t lcd_digits[] = {
 	LCD_SEG_DEG_1_SEG_1,
 	LCD_SEG_DEG_1_SEG_2,
 	LCD_SEG_DEG_1_SEG_3,
@@ -92,7 +92,7 @@ void lcd_set_seg(uint8_t seg, bool set)
 		LCD_RAM[off] &= ~bits;
 }
 
-const uint8_t sev_seg_codes[] = {
+CONSTMEM uint8_t sev_seg_codes[] = {
 	0b1110111,
 	0b0100100,
 	0b1011101,
