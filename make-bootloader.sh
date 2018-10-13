@@ -6,6 +6,6 @@ srec_cat bootloader.hex -intel bootloader.hex -intel -offset -0xe000 -crop 0x800
 
 if [ $# -ne 0 ]; then
 	#stm8flash -c stlinkv2 -p stm8l152?8 -s flash -w bootloader-full.hex # use this once to also write the real reset vector at 0x8000
-	stm8flash -c stlinkv2 -p stm8l152?8 -s 0x16000 -v bootloader.hex
-	../install/bin/stm8-gdb bootloader.elf -ex "target remote :3333" -ex "mon reset halt" -ex "c"
+	#stm8flash -c stlinkv2 -p stm8l152?8 -s 0x16000 -v bootloader.hex
+	../install/bin/stm8-gdb bootloader.elf -ex "target remote :3333" -ex "mon reset halt" -ex "load" -ex "c"
 fi

@@ -40,12 +40,15 @@ void copy_vector_table();
 #define FLASH_START 0x8000
 #define BOOTLOADER_SIZE 0x2000
 #define MAIN_START FLASH_START
+#define RAM_END 0xfff
 uint8_t buf[BLOCKSIZE];
 uint8_t start_address[3];
 
 static inline void start_main()
 {
 	__asm
+	ldw	x, #RAM_END
+	ldw	sp, x // reset stack pointer
 	jpf [_start_address]
 	__endasm;
 }
@@ -53,6 +56,8 @@ static inline void start_main()
 static inline void restart()
 {
 	__asm
+	ldw	x, #RAM_END
+	ldw	sp, x // reset stack pointer
 	jp [0x8000 + 2] // as we are already inside bootloader high memory, a (short) jp is ok here
 	__endasm;
 }
@@ -72,7 +77,19 @@ static void far_initializer()
 }
 
 
+// use an extra my_main() because we have to set the stackpointer before any function epilogue (local variables!)
+void my_main();
 void main()
+{
+	__asm
+	ldw	x, #RAM_END
+	ldw	sp, x
+	jp		_my_main
+	__endasm;
+}
+
+uint16_t block; // we need this global (say as heap variable) to make it safely usable in asm. (stack variables tend to change position often!)
+void my_main()
 {
 	far_initializer();
 
@@ -153,9 +170,9 @@ void main()
 
 	{
 #define BLOCK_TIMEOUT 1500
-		uint16_t block = 0; // don't change anything here without verifying that block stays in (0x5f,SP)!!!
 		uint8_t expected_counter = packet.counter + 1;
 		uint16_t timeout = get_tick() + BLOCK_TIMEOUT;
+		block = 0;
 		
 		while (true) {
 			if (tick_elapsed(timeout))
@@ -172,7 +189,7 @@ void main()
 
 			//(*write_flash_block)((uint16_t)block * BLOCKSIZE); // this doesn't work because of the far call!
 			__asm
-			ldw	X, (0x61,SP) // block. ATTENTION: if changing anything above, check disassembling if block stays in this position!
+			ldw	X, _block
 			sllw	X // << 7 equals * BLOCKSIZE
 			sllw	X
 			sllw	X
@@ -195,10 +212,12 @@ void main()
 		}
 
 		// erase the remaining flash space
-		// this is needed to find [ 0x00 crc ] when checking crc
+		// this is needed to find [ 0x55 crc ] when checking crc
 		//(*erase_unused_blocks)((uint16_t)block * BLOCKSIZE);
+		if (block == 0) // dont erase first block which contains (our) reset vector!
+			block++;
 		__asm
-		ldw	X, (0x61,SP) // block. ATTENTION: if changing anything above, check disassembling if block stays in this position!
+		ldw	X, _block
 		sllw	X // << 7 equals * BLOCKSIZE
 		sllw	X
 		sllw	X
@@ -217,13 +236,15 @@ void main()
 
 }
 
+uint8_t send_response_cnt = 0;
 void send_response(as_packet_t * recvd, bool ack)
 {
-	as_packet_t answer = { .length = 10, .counter = recvd->counter, .flags = 0x80, .type = 0x02, .from = { LIST_ID(hm_id) }, .to = { LIST_ID(recvd->from) }, .payload = { ack ? MSG_RESPONSE_ACK : MSG_RESPONSE_NACK } };
+	as_packet_t answer = { .length = 10, .counter = recvd->counter, .flags = AS_FLAG_DEF, .type = 0x02, .from = { LIST_ID(hm_id) }, .to = { LIST_ID(recvd->from) }, .payload = { ack ? MSG_RESPONSE_ACK : MSG_RESPONSE_NACK } };
 
 	if (ack && !(recvd->flags & 0x20)) // no ACK required
-		return;
+		;//return;
 
+	debug(++send_response_cnt);
 	radio_send(&answer);
 	if (!radio_wait(get_tick() + 1000))
 		__asm__("break\n");
@@ -263,6 +284,7 @@ bool receive_cb(uint16_t timeout_at)
 } while (false);
 #endif
 
+uint8_t wrong_answer_nr = 0;
 bool receive_block(uint16_t timeout_at, uint8_t expected_counter)
 {
 	bool first = true;
@@ -280,15 +302,22 @@ bool receive_block(uint16_t timeout_at, uint8_t expected_counter)
 			radio_enter_receive(AS_HEADER_SIZE + MAX_PAYLOAD);
 			continue; // crc failed -> continue receiving
 		}	
-		radio_enter_receive(AS_HEADER_SIZE + MAX_PAYLOAD);
 		if (CMP_ID(packet.to, hm_id) != 0) {
 			DEBUG(LCD_DEG_3, 1);
+			radio_enter_receive(AS_HEADER_SIZE + MAX_PAYLOAD);
 			continue; // not for us
 		}
 		if (packet.type != 0xca) {
-			DEBUG(LCD_DEG_3, 2);
+			if (packet.type == 0xcb && block == 0) {
+				send_response(&packet, true);
+				DEBUG(LCD_DEG_2, (wrong_answer_nr++) & 0xf);
+			}
+			else
+				DEBUG(LCD_DEG_3, 2);
+			radio_enter_receive(AS_HEADER_SIZE + MAX_PAYLOAD);
 			continue; // wrong packet type
 		}
+		radio_enter_receive(AS_HEADER_SIZE + MAX_PAYLOAD);
 
 		if (packet.counter != expected_counter) {
 			DEBUG(LCD_DEG_3, 3);
@@ -357,7 +386,7 @@ void erase_unused_blocks_flash(uint16_t start_offset)
 	jreq	00001$
 
 	// load start block address
-	ldw	x, (0x3, sp)
+	ldw	x, (0x4, sp) // 3 bytes return address!
 	//addw	x, #(MAIN_START - FLASH_START) // add this offset so we can easily check x == 0 below for end condition
 	addw	x, #BOOTLOADER_SIZE // add this offset so we can easily check x == 0 below for end condition
 	clrw	y
@@ -402,7 +431,7 @@ void write_flash_block_flash(uint16_t off)
 	mov	0x5051, #0x01 // FLASH_CR2 <- FLASH_CR2_PRG
 
 	ldw	x, #_buf // source
-	ldw	y, (0x3, sp) // destination offset
+	ldw	y, (0x4, sp) // destination offset (3 bytes return address!)
 
 	// copy 128 (0x80) bytes
 	ld		a, #0x80
@@ -451,15 +480,31 @@ void write_flash_block_flash(uint16_t off)
 #endif
 }
 
-uint8_t write_flash_block_ram[128]; // last time i checked the function it took 68 byte. so we have some spare bytes
-uint8_t erase_unused_blocks_ram[128];
+#define FUNCTION_SIZE 128
+uint8_t write_flash_block_ram[FUNCTION_SIZE]; // last time i checked the function it took 68 byte. so we have some spare bytes
+uint8_t erase_unused_blocks_ram[FUNCTION_SIZE];
 void copy_functions_to_ram()
 {
+	__asm
+	clrw	X
+
+00001$:
+	ldf	A, (_write_flash_block_flash, X)
+	ld		(_write_flash_block_ram, X), A
+	ldf	A, (_erase_unused_blocks_flash, X)
+	ld		(_erase_unused_blocks_ram, X), A
+	incw	X
+	cpw	X, #(FUNCTION_SIZE - 1)
+	jrne	00001$
+	__endasm;
+	
+#if 0
 	for (uint8_t i = 0; i < sizeof(write_flash_block_ram); i++)
 		write_flash_block_ram[i] = ((uint8_t*)&write_flash_block_flash)[i];
 
 	for (uint8_t i = 0; i < sizeof(erase_unused_blocks_ram); i++)
 		erase_unused_blocks_ram[i] = ((uint8_t*)&erase_unused_blocks_flash)[i];
+#endif
 }
 
 bool app_crc_ok()
