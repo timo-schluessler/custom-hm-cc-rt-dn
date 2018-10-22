@@ -152,7 +152,7 @@ void as_listen()
 			ack = as_config_write(packet.payload[0], packet.length - AS_HEADER_SIZE - 2, packet.payload + 2);
 		else if (packet.type == 0x01 && packet.length >= AS_HEADER_SIZE + 2 && packet.payload[1] == 0x06)
 			ack = as_config_end(packet.payload[0]);
-		else if (packet.type == 0x11 && packet.length >= AS_HEADER_SIZE + 1 && packet.payload[1] == 0xca) { // enter bootloader
+		else if (packet.type == 0x11 && packet.length >= AS_HEADER_SIZE + 1 && packet.payload[0] == 0xca) { // enter bootloader
 			enter_bootloader = true;
 			ack = true;
 		}

@@ -105,6 +105,8 @@
 #define PWR_CSR1 (*(__IO uint8_t*)0x50B2)
 #define PWR_CSR2 (*(__IO uint8_t*)0x50B3)
 
+#define RST_SR_MASK 0x3F
+
 /* CLOCK */
 #define CLK_CKDIVR	(*(__IO uint8_t*)0x50C0)
 #define CLK_CRTCR	(*(__IO uint8_t*)0x50C1)

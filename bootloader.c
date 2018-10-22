@@ -27,7 +27,7 @@ void debug(uint16_t nr);
 
 void send_response(as_packet_t * recvd, bool ack);
 bool receive_cb(uint16_t timeout_at);
-bool receive_block(uint16_t timeout_at, uint8_t expected_counter);
+bool receive_block(uint16_t timeout_at, uint8_t * expected_counter);
 void copy_functions_to_ram();
 bool app_crc_ok();
 bool bootloader_buttons_pressed();
@@ -91,6 +91,7 @@ void main()
 uint16_t block; // we need this global (say as heap variable) to make it safely usable in asm. (stack variables tend to change position often!)
 void my_main()
 {
+	bool reset;
 	far_initializer();
 
 	// low speed external clock prevents debugger from working :(
@@ -126,7 +127,9 @@ void my_main()
 		;
 #endif
 
-	if (app_crc_ok() && !bootloader_buttons_pressed())
+	// if no reset occured, we don't want to start main but stay in bootloader (we have been "called" by main app)
+	reset = RST_SR & RST_SR_MASK;
+	if (reset && app_crc_ok() && !bootloader_buttons_pressed())
 		start_main();
 
 	tick_init();
@@ -135,25 +138,36 @@ void my_main()
 
 	copy_functions_to_ram();
 
-	// send hello packet
 	{
-		as_packet_t packet = { .data = {
-			0x14, 0x00, 0x00, 0x10, LIST_ID(hm_id), 0x00, 0x00, 0x00, 0x00,
-			LIST_SERIAL(hm_serial)
-		}};
-		radio_send(&packet);
-		if (!radio_wait(get_tick() + 1000))
-			restart();
-	}
+		uint8_t i = 0;
+		while (true) {
+			// send hello packet
+			{
+				as_packet_t packet = { .data = {
+					0x14, 0x00, 0x00, 0x10, LIST_ID(hm_id), 0x00, 0x00, 0x00, 0x00,
+					LIST_SERIAL(hm_serial)
+				}};
+				radio_send(&packet);
+				if (!radio_wait(get_tick() + 1000))
+					restart();
+			}
 
-	lcd_sync();
-	lcd_set_digit(LCD_DEG_1, 0);
+			lcd_sync();
+			lcd_set_digit(LCD_DEG_1, 0);
 
-	if (!receive_cb(get_tick() + 1500)) {
-		if (app_crc_ok())
-			start_main();
-		else
-			restart();
+			if (receive_cb(get_tick() + 1500))
+				break;
+
+			if (++i == 3) {
+				if (app_crc_ok()) // we either have been called by main app or the buttons were pressed
+					start_main();
+				else {
+					set_timeout(get_tick() + 5000);
+					wfe();
+					i--; // loop endless (main app is broken)
+				}
+			}
+		}
 	}
 
 	lcd_sync();
@@ -178,7 +192,7 @@ void my_main()
 			if (tick_elapsed(timeout))
 				break;
 
-			if (!receive_block(timeout, expected_counter))
+			if (!receive_block(timeout, &expected_counter))
 				continue;
 
 			lcd_sync();
@@ -231,7 +245,8 @@ void my_main()
 		__endasm;
 	}
 
-
+	if (app_crc_ok()) // start main immediately if crc is correct
+		start_main();
 	restart();
 
 }
@@ -242,7 +257,7 @@ void send_response(as_packet_t * recvd, bool ack)
 	as_packet_t answer = { .length = 10, .counter = recvd->counter, .flags = AS_FLAG_DEF, .type = 0x02, .from = { LIST_ID(hm_id) }, .to = { LIST_ID(recvd->from) }, .payload = { ack ? MSG_RESPONSE_ACK : MSG_RESPONSE_NACK } };
 
 	if (ack && !(recvd->flags & 0x20)) // no ACK required
-		;//return;
+		return;
 
 	debug(++send_response_cnt);
 	radio_send(&answer);
@@ -285,7 +300,7 @@ bool receive_cb(uint16_t timeout_at)
 #endif
 
 uint8_t wrong_answer_nr = 0;
-bool receive_block(uint16_t timeout_at, uint8_t expected_counter)
+bool receive_block(uint16_t timeout_at, uint8_t * expected_counter)
 {
 	bool first = true;
 	uint16_t byte = 0;
@@ -319,10 +334,16 @@ bool receive_block(uint16_t timeout_at, uint8_t expected_counter)
 		}
 		radio_enter_receive(AS_HEADER_SIZE + MAX_PAYLOAD);
 
-		if (packet.counter != expected_counter) {
-			DEBUG(LCD_DEG_3, 3);
-			radio_wait(get_tick()); // cancel receiving (wait with timeout = 0)
-			return false;
+		if (packet.counter != *expected_counter) {
+			if (first && packet.counter == *expected_counter - 1) { // the ack didn't arrive at sender and this whole block is retransmitted
+				--*expected_counter;
+				block--;
+				DEBUG(LCD_DEG_3, 7);
+			} else {
+				DEBUG(LCD_DEG_3, 3);
+				radio_wait(get_tick()); // cancel receiving (wait with timeout = 0)
+				return false;
+			}
 		}
 
 		if (first) {
