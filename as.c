@@ -171,6 +171,9 @@ void as_listen()
 		}
 
 		if (enter_bootloader) {
+			__asm__ ("rim\n"); // disable interrupts
+			PC_CR2 = 0; // disable wheel interrupts
+			PF_CR2 = 0; // disable button interrupts
 			RST_SR = 0xff; // reset all reset sources to signal bootloader that we jumped into it
 			__asm
 			jpf	[FLASH_START + 1] // jump far because bootloader is in upper memory region

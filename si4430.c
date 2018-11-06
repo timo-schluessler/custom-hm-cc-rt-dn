@@ -79,6 +79,9 @@ void radio_init()
 	
 	write_burst(0x6e, sizeof(reg_6e_77), reg_6e_77);
 
+	// TODO we could also enable almost full interrupt and readout the length byte as soon as possible (almost full threshold = 0)
+	// TODO then with the length information we could update the almost full threshold and when it triggers again readout the packet
+	// TODO the pkglen register should then only be used as absolute maximum length packet backup recognition. in case we mix anything up
 	write_reg(SI4430_INT1, SI4430_PKGVALID | SI4430_PKGSENT); // enable pkg valid/sent interrupt
 	//write_reg(SI4430_INT2, SI4430_SWDET | SI4430_PREAVAL | SI4430_RSSI | SI4430_CHIPRDY); // enable sync word detect interrupt
 

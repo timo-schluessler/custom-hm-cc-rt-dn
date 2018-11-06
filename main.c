@@ -17,9 +17,12 @@
 
 #define LEDS (1u<<7)
 
-#define BUTTON_LEFT (1u<<4)
-#define BUTTON_MIDDLE (1u<<5)
-#define BUTTON_RIGHT (1u<<6)
+#define BUTTON_LEFT (1u<<4) // PF4
+#define BUTTON_MIDDLE (1u<<5) // PF5
+#define BUTTON_RIGHT (1u<<6) // PF6
+
+#define WHEEL_A (1u<<1) // PC1
+#define WHEEL_B (1u<<0) // PC0
 
 #define TEMP_SENSOR_OUT (1u<<1) // PF1
 
@@ -39,6 +42,8 @@ lcd_t lcd_data = { 0 };
 
 void main()
 {
+	__asm__ ("rim\n"); // disable interrupts
+
 	// low speed external clock prevents debugger from working :(
 #ifdef USE_LSE
 	CLK_SWCR |= CLK_SWCR_SWEN;
@@ -77,6 +82,11 @@ void main()
 	//PF_ODR |= LEDS; // enable backlight
 
 	PF_CR1 |= BUTTON_LEFT | BUTTON_MIDDLE | BUTTON_RIGHT; // enable pullups
+	EXTI_CR3 = (0b11*EXTI_CR3_PFIS); // use EXTIF for button edges
+	EXTI_CONF1 = EXTI_CONF1_PFES; // use PORTF for EXTIEF interrupt generation
+
+	PC_CR2 = WHEEL_A | WHEEL_B; // enable external interrupt
+	EXTI_CR1 = (0b11*EXTI_CR1_P0IS) | (0b11*EXTI_CR1_P1IS); // use EXTI0 and EXTI1 for wheel edges
 
 	ADC1_TRIGR1 = ADC_TRIGR1_TRIG24; // disable schmitt trigger for analog temperature input
 
@@ -183,7 +193,10 @@ void measure_temperature()
 		//temp = 1.0/(K25_INV + BETA_INV * logf(tmp)) - 273.15;
 	}
 
+	// TODO convert battery voltage
+
 
 }
 
 #include "rtc.c"
+#include "ui.c"
