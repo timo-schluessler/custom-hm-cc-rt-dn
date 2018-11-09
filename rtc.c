@@ -54,6 +54,6 @@ void rtc_isr() __interrupt(4)
 {
 	RTC_CR2 = 0; // disable wake up timer and interrupt
 	RTC_ISR2 = (uint8_t)~RTC_ISR2_WUTF; // reset WUTF flag
-	__asm__ ("rim\n"); // re-disable interrupts (halt enabled them)
+	disable_interrupts(); // re-disable interrupts (halt enabled them)
 }
 

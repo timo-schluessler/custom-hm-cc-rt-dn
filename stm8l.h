@@ -3,6 +3,9 @@
 
 #define EEPROM_START 0x1000
 
+#define enable_interrupts() __asm__("rim")
+#define disable_interrupts() __asm__("sim")
+
 /* SYSCFG remap */
 #define SYSCFG_RMPCR2 (*(__IO uint8_t*)0x509F)
 
@@ -71,6 +74,13 @@
 #define EXTI_CR4 *(__IO uint8_t*)0x50AA
 #define EXTI_CONF2 *(__IO uint8_t*)0x50AB
 
+#define EXTI_CR1_P0IS (1u<<0)
+#define EXTI_CR1_P1IS (1u<<2)
+#define EXTI_CR3_PFIS (1u<<6)
+#define EXTI_SR1_P0F (1u<<0)
+#define EXTI_SR1_P1F (1u<<1)
+#define EXTI_SR2_PFF (1u<<3)
+#define EXTI_CONF1_PFES (1u<<7)
 #define EXTI_SR1_P4F (1u<<4)
 
 /* wait for event */

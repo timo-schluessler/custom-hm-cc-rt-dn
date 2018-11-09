@@ -14,6 +14,7 @@
 #include "spi.h"
 #include "motor.h"
 #include "rtc.h"
+#include "ui.h"
 
 #define LEDS (1u<<7)
 
@@ -42,7 +43,7 @@ lcd_t lcd_data = { 0 };
 
 void main()
 {
-	__asm__ ("rim\n"); // disable interrupts
+	disable_interrupts();
 
 	// low speed external clock prevents debugger from working :(
 #ifdef USE_LSE
@@ -85,18 +86,19 @@ void main()
 	EXTI_CR3 = (0b11*EXTI_CR3_PFIS); // use EXTIF for button edges
 	EXTI_CONF1 = EXTI_CONF1_PFES; // use PORTF for EXTIEF interrupt generation
 
-	PC_CR2 = WHEEL_A | WHEEL_B; // enable external interrupt
-	EXTI_CR1 = (0b11*EXTI_CR1_P0IS) | (0b11*EXTI_CR1_P1IS); // use EXTI0 and EXTI1 for wheel edges
+	PC_CR2 = WHEEL_A; // enable external interrupt
+	EXTI_CR1 = (0b11*EXTI_CR1_P1IS); // use EXTI1 for wheel edges
 
 	ADC1_TRIGR1 = ADC_TRIGR1_TRIG24; // disable schmitt trigger for analog temperature input
 
 	motor_init();
-
 	rtc_init();
-
 	radio_init();
-	//spi_disable();
+	//spi_disable(); // TODO
 	//radio_enter_receive(14);
+	ui_init();
+
+	enable_interrupts();
 
 	//motor_ref();
 
@@ -136,18 +138,21 @@ void lcd_test()
 {
 	//if (tick_elapsed(timeout_lcd)) {
 		//timeout_lcd += 1024;
-	if (lcd_data.value != lcd_data.last_value) {
+	uint8_t value;
+	lcd_data.value = wheel & 0xf;
+	value = lcd_data.value;
+	if (value != lcd_data.last_value) {
 
 		lcd_sync();
-		lcd_set_digit(LCD_DEG_1, lcd_data.value);
-		lcd_set_digit(LCD_DEG_2, lcd_data.value);
-		lcd_set_digit(LCD_DEG_3, lcd_data.value);
+		lcd_set_digit(LCD_DEG_1, value);
+		lcd_set_digit(LCD_DEG_2, value);
+		lcd_set_digit(LCD_DEG_3, value);
 
-		lcd_set_digit(LCD_TIME_1, lcd_data.value);
-		lcd_set_digit(LCD_TIME_2, lcd_data.value);
-		lcd_set_digit(LCD_TIME_3, lcd_data.value);
-		lcd_set_digit(LCD_TIME_4, lcd_data.value);
-		lcd_data.last_value = lcd_data.value;
+		lcd_set_digit(LCD_TIME_1, value);
+		lcd_set_digit(LCD_TIME_2, value);
+		lcd_set_digit(LCD_TIME_3, value);
+		lcd_set_digit(LCD_TIME_4, value);
+		lcd_data.last_value = value;
 		//if (++value == 0x10)
 		//	value = 0;
 	}
