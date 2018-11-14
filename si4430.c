@@ -44,7 +44,6 @@ CONSTMEM uint8_t reg_32_39[] = { 0x00, 0x0e, 0x08, 0x22, 0xE9, 0xCA, 0xE9, 0xCA 
 CONSTMEM uint8_t reg_6e_77[] = { 0x51, 0xDC, 0x2c, 0x22, 0x1E, 0x00, 0x00, 0x73, 0x67, 0x9F };
 void radio_init()
 {
-
 	spi_init();
 	spi_enable();
 
@@ -87,6 +86,15 @@ void radio_init()
 
 	radio_state = radio_idle;
 	write_reg(SI4430_OMFC1, 0); // goto idle mode
+
+	WFE_CR2 |= WFE_CR2_EXTI_EV4; // nIQR is PB4 which is by default mapped to EXTI4
+	PB_CR2 |= (1u<<4); // PB4 external interrupt enabled
+}
+
+void radio_deinit()
+{
+	PB_CR2 &= ~(1u<<4); // PB4 external interrupt enabled
+	WFE_CR2 &= ~WFE_CR2_EXTI_EV4; // nIQR is PB4 which is by default mapped to EXTI4
 }
 
 // originally i wanted this to be static inside radio_switch_100k. but sdcc has a problem with that ("relocation error")
@@ -120,12 +128,7 @@ void white(uint8_t len, uint8_t * data)
 // TODO move this to RAM to further reduce current consumption
 static bool wait_int(uint16_t timeout_at)
 {
-	// TODO only do this once?
-	WFE_CR1 = WFE_CR1_TIM2_EV1; // timer 2 capture and compare events
-	WFE_CR2 = WFE_CR2_EXTI_EV4; // nIQR is PB4 which is by default mapped to EXTI4
-
 	while (!tick_elapsed(timeout_at - 1) && read_int()) { // -1 for safety: i don't know if set_timeout() timesout if timeout_at is already reached!
-		PB_CR2 |= (1u<<4); // PB4 external interrupt enabled
 		EXTI_SR1 = EXTI_SR1_P4F; // reset external interrupt port 4
 		set_timeout(timeout_at);
 

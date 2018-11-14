@@ -1,5 +1,6 @@
 
 motor_position_t motor_position;
+uint8_t motor_percent;
 #define BACKWARD -1
 #define FORWARD 1
 int8_t motor_dir = BACKWARD;
@@ -192,6 +193,7 @@ void motor_move_to(uint8_t percent)
 	bool last;
 
 	ENABLE_ENCODER();
+	motor_percent = percent;
 
 	if (percent == 0) { // move until stop
 		threshold = 2 * MAX_STALL_THRESHOLD;
@@ -216,8 +218,10 @@ void motor_move_to(uint8_t percent)
 		threshold = 2 * MOVE_STALL_THRESHOLD;
 	}
 
-	if (pos == motor_position)
+	if (pos == motor_position) {
+		DISABLE_ENCODER();
 		return;
+	}
 	if (pos > motor_position)
 		motor_dir = FORWARD;
 	else

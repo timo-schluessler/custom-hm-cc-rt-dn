@@ -4,6 +4,7 @@
 #include "as.h"
 
 void radio_init();
+void radio_deinit();
 void radio_poll();
 
 bool radio_wait(uint16_t timeout);

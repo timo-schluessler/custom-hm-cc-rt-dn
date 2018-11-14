@@ -46,6 +46,9 @@ uint8_t start_address[3];
 
 static inline void start_main()
 {
+	radio_deinit();
+	tick_deinit();
+
 	__asm
 	ldw	x, #RAM_END
 	ldw	sp, x // reset stack pointer

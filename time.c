@@ -12,6 +12,15 @@ void tick_init()
 	TIM2_PSCR = 2; // prescale by 2^2 = 4. one tick is 1/1024s
 	TIM2_EGR = 1; // force update to make all changes take effect immediately
 	TIM2_CR1 = TIMx_CR1_CEN;
+
+	WFE_CR1 |= WFE_CR1_TIM2_EV1; // timer 2 capture and compare events
+}
+
+void tick_deinit()
+{
+	clear_timeout();
+	WFE_CR1 &= ~WFE_CR1_TIM2_EV1; // timer 2 capture and compare events
+	CLK_PCKENR1 &= ~CLK_PCKENR1_TIM2;
 }
 
 uint16_t get_tick()
@@ -30,4 +39,10 @@ void set_timeout(uint16_t timeout_at)
 void clear_timeout()
 {
 	TIM2_IER = 0; // disable interrupt
+}
+
+void wait_timeout()
+{
+	while (!(TIM2_SR1 & TIMx_SR1_CC1IF))
+		wfe();
 }

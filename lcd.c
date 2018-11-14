@@ -108,7 +108,8 @@ CONSTMEM uint8_t sev_seg_codes[] = {
 	0b1010011,
 	0b1111100,
 	0b1011011,
-	0b0011011
+	0b0011011,
+	0b0000000 // 0x10 is clear/empty digit
 };
 
 void lcd_set_digit(uint8_t digit, uint8_t value)

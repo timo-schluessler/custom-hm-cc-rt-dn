@@ -82,13 +82,6 @@ void main()
 	PF_DDR = LEDS | TEMP_SENSOR_OUT; // output
 	//PF_ODR |= LEDS; // enable backlight
 
-	PF_CR1 |= BUTTON_LEFT | BUTTON_MIDDLE | BUTTON_RIGHT; // enable pullups
-	EXTI_CR3 = (0b11*EXTI_CR3_PFIS); // use EXTIF for button edges
-	EXTI_CONF1 = EXTI_CONF1_PFES; // use PORTF for EXTIEF interrupt generation
-
-	PC_CR2 = WHEEL_A; // enable external interrupt
-	EXTI_CR1 = (0b11*EXTI_CR1_P1IS); // use EXTI1 for wheel edges
-
 	ADC1_TRIGR1 = ADC_TRIGR1_TRIG24; // disable schmitt trigger for analog temperature input
 
 	motor_init();
@@ -103,6 +96,13 @@ void main()
 	//motor_ref();
 
 	while (true) {
+		ui_update();
+
+		ui_wait();
+
+		rtc_sleep(10);
+
+#if 0
 		lcd_test();
 		if ((PF_IDR & BUTTON_LEFT) == 0) {
 			for (;;) {
@@ -125,11 +125,19 @@ void main()
 			as_listen();
 			delay_ms(10);
 		}
+#endif
 		//radio_poll();
 		//measure_temperature();
 		//delay_ms(1000);
 		//rtc_sleep(5);
 	}
+}
+
+void main_deinit()
+{
+	radio_deinit();
+	tick_deinit();
+	ui_deinit();
 }
 
 #include "si4430.c"

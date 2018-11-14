@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 void tick_init();
+void tick_deinit();
 
 #define GET_MACRO(_1,_2,NAME,...) NAME
 #define tick_elapsed(...) GET_MACRO(__VA_ARGS__, tick_elapsed2, tick_elapsed1)(__VA_ARGS__)
@@ -15,5 +16,6 @@ uint16_t get_tick();
 
 void set_timeout(uint16_t timeout_at);
 void clear_timeout();
+void wait_timeout();
 
 #endif
