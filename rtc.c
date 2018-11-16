@@ -46,7 +46,6 @@ void rtc_sleep(uint16_t seconds)
 	//RTC_ISR2 = (uint8_t)~RTC_ISR2_WUTF; // reset WUTF flag
 
 	RTC_CR2 = 0; // disable wake up timer and interrupt
-	RTC_ISR2 = (uint8_t)~RTC_ISR2_WUTF; // reset WUTF flag
 
 	CLK_PCKENR2 |= CLK_PCKENR2_LCD; // enable LCD clock
 	CLK_PCKENR1 |= CLK_PCKENR1_TIM2; // enable TIM2 clock
@@ -55,5 +54,6 @@ void rtc_sleep(uint16_t seconds)
 
 void rtc_isr() __interrupt(4)
 {
+	RTC_ISR2 = (uint8_t)~RTC_ISR2_WUTF; // reset WUTF flag
 }
 

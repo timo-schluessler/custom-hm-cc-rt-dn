@@ -21,6 +21,8 @@
 #define BUTTON_LEFT (1u<<4) // PF4
 #define BUTTON_MIDDLE (1u<<5) // PF5
 #define BUTTON_RIGHT (1u<<6) // PF6
+#define BUTTONS (BUTTON_LEFT | BUTTON_MIDDLE | BUTTON_RIGHT)
+
 
 #define WHEEL_A (1u<<1) // PC1
 #define WHEEL_B (1u<<0) // PC0
@@ -96,6 +98,7 @@ void main()
 	//motor_ref();
 
 	while (true) {
+		measure_temperature();
 		ui_update();
 
 		ui_wait();
@@ -168,47 +171,62 @@ void lcd_test()
 
 #include "motor.c"
 
-volatile uint16_t temp_test;
-volatile float temp;
+float temp;
+uint8_t battery_voltage;
+volatile uint16_t duration, duration1;
 #include <math.h>
 void measure_temperature()
 {
-	uint32_t sum = 0;
+	uint16_t sum = 0;
 
 	PF_ODR |= TEMP_SENSOR_OUT;
 	CLK_PCKENR2 |= CLK_PCKENR2_ADC1;
+	ADC1_TRIGR1 = ADC_TRIGR1_VREFINTON;
 #define ADC1_CR1_VALUE (ADC_CR1_ADON | (0b0 * ADC_CR1_RES0)) // enable ad, 12bit resolution
 	ADC1_CR1 = ADC1_CR1_VALUE;
 	//ADC1_CR2 = 0; // system clock as adc clock, no ext trigger, 4 ADC clocks sampling time
-	ADC1_SQR1 = ADC_SQR1_CHSEL_S24; // select channel 24 which is PF0
+	ADC1_SQR1 = ADC_SQR1_DMAOFF | ADC_SQR1_CHSEL_S24; // select channel 24 which is PF0
 	ADC1_SR = 0; // reset EOC flag
 
-	for (uint8_t i = 0; ;) {
+	for (uint8_t i = 0; i < 4; i++) {
 		ADC1_CR1 = ADC1_CR1_VALUE | ADC_CR1_START; // start conversion
 		while (!(ADC1_SR & ADC_SR_EOC))
 			;
 		sum += ((uint16_t)ADC1_DRH << 8) | ADC1_DRL;
-		if (++i == 0) // do the check here at end, so in fact we summed it up 256 times
-			break;
 	}
-	temp_test = sum >> 8;
-
 	PF_ODR &= ~TEMP_SENSOR_OUT;
-	ADC1_CR1 = 0; // disable ad
-	CLK_PCKENR2 &= ~CLK_PCKENR2_ADC1;
+
+	if (sum & 0x2)
+		sum += 0x40;
+	sum >>= 2;
 
 	{
 		// TODO use a lookup table of some kind?
 #define BETA_INV .0002531645 // 1/3950
 #define K25_INV .00335401643468052993 // 1/298.15 = 1/(25°C.) = 1/(25K + 273.15K)
 		// theese two lines increase code size by 3.3kb
-		//float tmp = temp_test / (float)(4096 - temp_test); // = R / R_0
-		//temp = 1.0/(K25_INV + BETA_INV * logf(tmp)) - 273.15;
+		float tmp = sum / (float)(4096 - sum); // = R / R_0
+		temp = 1.0/(K25_INV + BETA_INV * logf(tmp)) - 273.15;
 	}
 
-	// TODO convert battery voltage
+	ADC1_SQR1 = ADC_SQR1_DMAOFF | ADC_SQR1_CHSEL_SVREFINT;
 
+	sum = 0;
+	for (uint8_t i = 0; i < 2; i++) {
+		ADC1_CR1 = ADC1_CR1_VALUE | ADC_CR1_START; // strat conversion
+		while (!(ADC1_SR & ADC_SR_EOC))
+			;
+		sum += ((uint16_t)ADC1_DRH << 8) | ADC1_DRL;
+	}
 
+	ADC1_TRIGR1 = 0; // disable Vrefint
+	ADC1_CR1 = 0; // disable ad
+	CLK_PCKENR2 &= ~CLK_PCKENR2_ADC1;
+
+	sum >>= 1;
+	// factory_conv / 4096 = 1.224 / 3.  // we could use factory conversion to more precisely determine Vrefint. but we don't need it
+	//battery_voltage = (1.224 * 4096) / sum;
+	battery_voltage = (50135 + (sum >> 1)) / sum;
 }
 
 #include "rtc.c"

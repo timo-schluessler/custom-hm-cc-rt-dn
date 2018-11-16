@@ -81,6 +81,8 @@
 #define EXTI_SR1_P1F (1u<<1)
 #define EXTI_SR2_PFF (1u<<3)
 #define EXTI_CONF1_PFES (1u<<7)
+#define EXTI_CONF1_PFLIS (1u<<6)
+#define EXTI_CONF2_PFHIS (1u<<0)
 #define EXTI_SR1_P4F (1u<<4)
 
 /* wait for event */
@@ -218,6 +220,7 @@
 #define LCD_CR4 (*(__IO uint8_t*)0x542F)
 
 #define LCD_CR3_LCDEN (1u<<6)
+#define LCD_CR3_SOFIE (1u<<5)
 #define LCD_CR3_SOF (1u<<4)
 #define LCD_CR3_SOFC (1u<<3)
 
@@ -460,3 +463,4 @@
 
 #define ADC_TRIGR1_TRIG24 (1u<<0)
 #define ADC_TRIGR1_TRIG25 (1u<<1)
+#define ADC_TRIGR1_VREFINTON (1u<<4)

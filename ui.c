@@ -8,12 +8,15 @@ uint8_t wanted_heat; // 0-50 = 0.0 - 5.0
 uint8_t last_wheel = 0, last_wheel_in;
 uint8_t wheel = 0;
 
+void display_decimal(uint8_t first_seg, uint16_t value, uint8_t digits, uint8_t base_digit);
+
 void ui_init()
 {
 	PF_CR1 |= BUTTON_LEFT | BUTTON_MIDDLE | BUTTON_RIGHT; // enable pullups
 	PF_CR2 = BUTTON_LEFT | BUTTON_MIDDLE | BUTTON_RIGHT; // enable interrupts
 	EXTI_CR3 = (0b11*EXTI_CR3_PFIS); // use EXTIF for button edges
 	EXTI_CONF1 = EXTI_CONF1_PFES; // use PORTF for EXTIEF interrupt generation
+	EXTI_CONF2 = EXTI_CONF2_PFHIS; // use PORTF for EXTIEF interrupt generation
 
 	PC_CR2 = WHEEL_A; // enable external interrupt
 	EXTI_CR1 = (0b11*EXTI_CR1_P1IS); // use EXTI1 for wheel edges
@@ -27,24 +30,32 @@ void ui_deinit()
 	PF_CR2 = 0; // disable button interrupts
 }
 
-bool in_ui_wait = false;
+volatile bool in_ui_wait = false;
+volatile bool ui_wait_endless = false;
 void ui_wait()
 {
 	in_ui_wait = true;
+
 	set_timeout(get_tick() + UI_WAIT);
 	wait_timeout();
+
+	while (ui_wait_endless) {
+		__asm__ ("halt\n");
+		if (!ui_wait_endless) // when ui_wait_endless is set to false, set_timeout is also called. wait for it
+			wait_timeout();
+	}
+
 	in_ui_wait = false;
 }
 
-bool in_ui_update = false;
-bool need_ui_update = false;
 void ui_update()
 {
-ui_update_start:
-	lcd_sync();
-	need_ui_update = false;
-	in_ui_update = true;
+	LCD_CR3 |= LCD_CR3_SOFIE | LCD_CR3_SOFC; // enable lcd interrupt and clear flag to update ui on next sync
+}
 
+void lcd_sync_interrupt() __interrupt(16)
+{
+	LCD_CR3 &= ~LCD_CR3_SOFIE; // redisable interrupt
 	{
 		uint8_t cur_wheel = wheel; // only read this once
 		wanted_heat += (int8_t)(cur_wheel - last_wheel);
@@ -56,42 +67,46 @@ ui_update_start:
 	}
 	
 	{
-		uint8_t sub = wanted_heat % 10;
-		uint8_t main = wanted_heat / 10;
+		uint16_t value;
+		if ((PF_IDR & BUTTON_LEFT) == 0)
+			value = battery_voltage;
+		else if ((PF_IDR & BUTTON_RIGHT) == 0)
+			value = temp * 10;
+		else
+			value = wanted_heat;
 
-		lcd_set_digit(LCD_DEG_1, 0x10);
-		lcd_set_digit(LCD_DEG_2, main);
-		lcd_set_digit(LCD_DEG_3, sub);
+		display_decimal(LCD_DEG_1, value, 3, 1);
 		lcd_set_seg(LCD_SEG_DEG_2_DOT, true);
 	}
 
 	{
 		uint16_t value;
-		uint8_t digit[4];
-		bool all_zero = true;
 		if ((PF_IDR & BUTTON_MIDDLE) == 0) // when middle button is pressed display motor_position
 			value = motor_position;
 		else
 			value = motor_percent;
 
-		for (uint8_t i = 0; i < 4; i++) {
-			digit[i] = value % 10;
-			value /= 10;
-		}
-		for (uint8_t i = 0; i < 4; i++) {
-			if (all_zero && digit[3-i] == 0 && i != 3)
-				digit[3-i] = 0x10;
-			else
-				all_zero = false;
-			lcd_set_digit(LCD_TIME_1 + i * 7, digit[3-i]);
-		}
+		display_decimal(LCD_TIME_1, value, 4, 3);
 	}
+}
 
-	in_ui_update = false;
-	if (need_ui_update)
-		goto ui_update_start;
-	if (in_ui_wait)
-		set_timeout(get_tick() + UI_WAIT);
+void display_decimal(uint8_t first_seg, uint16_t value, uint8_t digits, uint8_t base_digit)
+{
+	uint8_t digit[4];
+	bool all_zero = true;
+
+	for (uint8_t i = 0; i < digits; i++) {
+		digit[i] = value % 10;
+		value /= 10;
+	}
+	digits--;
+	for (uint8_t i = 0; i <= digits; i++) {
+		if (all_zero && digit[digits-i] == 0 && i != base_digit)
+			digit[digits-i] = 0x10;
+		else
+			all_zero = false;
+		lcd_set_digit(first_seg + i * 7, digit[digits-i]);
+	}
 }
 
 // EXTI1
@@ -111,10 +126,10 @@ void wheel_a_isr() __interrupt(9)
 	
 	last_wheel_in = cur_wheel;
 
-	if (!in_ui_update)
-		ui_update();
-	else
-		need_ui_update = true;
+	if (in_ui_wait)
+		set_timeout(get_tick() + UI_WAIT);
+	
+	ui_update();
 
 	/* one direction
 		01 -> 10
@@ -131,16 +146,12 @@ void button_isr() __interrupt(5)
 {
 	EXTI_SR2 = EXTI_SR2_PFF;
 
-	if (!in_ui_update)
-		ui_update();
-	else
-		need_ui_update = true;
+	if (in_ui_wait)
+		set_timeout(get_tick() + UI_WAIT);
+	ui_wait_endless = (PF_IDR & BUTTONS) != BUTTONS ;
+
+	ui_update();
 }
-
-
-
-
-
 
 
 
