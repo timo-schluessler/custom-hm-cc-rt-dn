@@ -2,8 +2,6 @@
 
 uint8_t wanted_heat; // 0-50 = 0.0 - 5.0
 
-#define UI_WAIT 2000
-
 #define WHEELS (WHEEL_A | WHEEL_B)
 uint8_t last_wheel = 0, last_wheel_in;
 uint8_t wheel = 0;
@@ -30,48 +28,49 @@ void ui_deinit()
 	PF_CR2 = 0; // disable button interrupts
 }
 
-volatile bool in_ui_wait = false;
 volatile bool ui_wait_endless = false;
+volatile uint16_t ui_wait_until;
 void ui_wait()
 {
-	in_ui_wait = true;
+	while (true) {
+		uint16_t copy;
 
-	set_timeout(get_tick() + UI_WAIT);
-	wait_timeout();
-
-	while (ui_wait_endless) {
-		__asm__ ("halt\n");
-		if (!ui_wait_endless) // when ui_wait_endless is set to false, set_timeout is also called. wait for it
+		disable_interrupts();
+		copy = ui_wait_until; // atomic read (only do this once)
+		if (ui_wait_endless)
+			__asm__ ("halt\n");
+		else if (!((copy - get_tick() - 2) & 0x8000)) {
+			enable_interrupts();
+			set_timeout(copy);
 			wait_timeout();
+		} else
+			break; // we don't enable interrupts here because they must stay disabled until we halt in rtc_sleep!
 	}
-
-	in_ui_wait = false;
 }
 
 void ui_update()
 {
+	uint8_t cur_wheel = wheel; // only read this once
+	wanted_heat += (int8_t)(cur_wheel - last_wheel);
+	last_wheel = cur_wheel;
+	if (wanted_heat > 128)
+		wanted_heat = 0;
+	else if (wanted_heat > 50)
+		wanted_heat = 50;
+
 	LCD_CR3 |= LCD_CR3_SOFIE | LCD_CR3_SOFC; // enable lcd interrupt and clear flag to update ui on next sync
 }
 
 void lcd_sync_interrupt() __interrupt(16)
 {
 	LCD_CR3 &= ~LCD_CR3_SOFIE; // redisable interrupt
-	{
-		uint8_t cur_wheel = wheel; // only read this once
-		wanted_heat += (int8_t)(cur_wheel - last_wheel);
-		last_wheel = cur_wheel;
-		if (wanted_heat > 128)
-			wanted_heat = 0;
-		else if (wanted_heat > 50)
-			wanted_heat = 50;
-	}
-	
+
 	{
 		uint16_t value;
 		if ((PF_IDR & BUTTON_LEFT) == 0)
 			value = battery_voltage;
 		else if ((PF_IDR & BUTTON_RIGHT) == 0)
-			value = temp * 10;
+			value = temp;
 		else
 			value = wanted_heat;
 
@@ -126,8 +125,7 @@ void wheel_a_isr() __interrupt(9)
 	
 	last_wheel_in = cur_wheel;
 
-	if (in_ui_wait)
-		set_timeout(get_tick() + UI_WAIT);
+	ui_wait_until = get_tick() + UI_WAIT;
 	
 	ui_update();
 
@@ -146,9 +144,8 @@ void button_isr() __interrupt(5)
 {
 	EXTI_SR2 = EXTI_SR2_PFF;
 
-	if (in_ui_wait)
-		set_timeout(get_tick() + UI_WAIT);
-	ui_wait_endless = (PF_IDR & BUTTONS) != BUTTONS ;
+	ui_wait_until = get_tick() + UI_WAIT;
+	ui_wait_endless = (PF_IDR & BUTTONS) != BUTTONS;
 
 	ui_update();
 }

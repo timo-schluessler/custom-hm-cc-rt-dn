@@ -163,6 +163,7 @@ void motor_ref()
 			break;
 	}
 	motor_max_pos = motor_position;
+	motor_percent = 0;
 
 	lcd_sync();
 	lcd_set_digit(LCD_DEG_3, 2);
@@ -192,8 +193,14 @@ void motor_move_to(uint8_t percent)
 	motor_position_t pos;
 	bool last;
 
+	if (motor_error)
+		return;
+	if (percent == 0 && motor_percent == percent)
+		return;
+
 	ENABLE_ENCODER();
 	motor_percent = percent;
+	ui_update();
 
 	if (percent == 0) { // move until stop
 		threshold = 2 * MAX_STALL_THRESHOLD;

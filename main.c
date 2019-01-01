@@ -32,6 +32,10 @@
 void lcd_test();
 void measure_temperature();
 
+//float temp;
+uint16_t temp;
+uint8_t battery_voltage;
+
 //#define USE_LSE
 
 #include "time.h"
@@ -89,21 +93,43 @@ void main()
 	motor_init();
 	rtc_init();
 	radio_init();
-	//spi_disable(); // TODO
+	spi_disable(); // TODO do this in as_poll
 	//radio_enter_receive(14);
 	ui_init();
 
 	enable_interrupts();
 
-	//motor_ref();
+	motor_ref();
 
 	while (true) {
 		measure_temperature();
 		ui_update();
+		ui_wait_until = get_tick() + UI_WAIT; // atomic write to wait_until?
 
-		ui_wait();
+		//as_poll(); --> as_send_status(); or send_device_info (if no master) as_listen();
 
-		rtc_sleep(10);
+		if (as_ok)
+			motor_move_to(as_valve_value);
+		else {
+			uint16_t set;
+			int16_t diff;
+
+			set = 200 + ((int16_t)wanted_heat - 30) * 4;
+			diff = temp - set;
+			if (diff > 0)
+				diff *= - 2; // 0.3° diff -> 6%
+			else
+				diff *= - 8; // 1° diff -> 80% valve position
+			diff += 6; // fixed I is 5%
+			if (diff > 100)
+				diff = 100;
+			else if (diff < 0)
+				diff = 0;
+			motor_move_to(diff);
+		}
+
+		ui_wait(); // this function returns with interrupts disabled! rtc_sleep -> halt re-enables them
+		rtc_sleep(as_ok ? as_sleep_value : 5 * 60);
 
 #if 0
 		lcd_test();
@@ -170,14 +196,13 @@ void lcd_test()
 }
 
 #include "motor.c"
+#include "temp_lookup.c"
 
-float temp;
-uint8_t battery_voltage;
 volatile uint16_t duration, duration1;
 #include <math.h>
 void measure_temperature()
 {
-	uint16_t sum = 0;
+	volatile uint16_t sum = 0;
 
 	PF_ODR |= TEMP_SENSOR_OUT;
 	CLK_PCKENR2 |= CLK_PCKENR2_ADC1;
@@ -197,9 +222,11 @@ void measure_temperature()
 	PF_ODR &= ~TEMP_SENSOR_OUT;
 
 	if (sum & 0x2)
-		sum += 0x40;
+		sum += 0x4;
 	sum >>= 2;
 
+	duration = get_tick();
+#if 0
 	{
 		// TODO use a lookup table of some kind?
 #define BETA_INV .0002531645 // 1/3950
@@ -208,6 +235,46 @@ void measure_temperature()
 		float tmp = sum / (float)(4096 - sum); // = R / R_0
 		temp = 1.0/(K25_INV + BETA_INV * logf(tmp)) - 273.15;
 	}
+#else
+	{
+		// binary search for largest table entry that is smaller than or equal sum (floor)
+		// see ntc/ntc.cpp and ntc/verify.cpp
+		uint8_t start = 0;
+		uint8_t end = sizeof(temp_table) / sizeof(uint16_t) / 2 - 1;
+		while (true) {
+			uint8_t mid = start + end;
+			uint16_t t;
+			if (mid & 1)
+				mid += 0x2;
+			mid >>= 1;
+			t = temp_table[mid][0] & 0x1fff;
+			if (t == sum) {
+				temp = ((temp_table[mid][1] | ((uint32_t)(temp_table[mid][0] & 0xe000) << 3)) + 512/2) >> 9;
+				break;
+			}
+			else if (sum < t)
+				end = mid - 1;
+			else
+				start = mid;
+			if (end <= start) {
+				if (end == sizeof(temp_table) / sizeof(uint16_t) / 2 - 1) // end may not be last element! we need end+1
+					end--;
+				{
+					uint16_t last_x = temp_table[end][0] & 0x1fff;
+					uint32_t last_y = temp_table[end][1] | ((uint32_t)(temp_table[end][0] & 0xe000) << 3);
+					uint16_t next_x = temp_table[end+1][0] & 0x1fff;
+					uint32_t next_y = temp_table[end+1][1] | ((uint32_t)(temp_table[end+1][0] & 0xe000) << 3);
+					// a has implicit negative sign
+					uint16_t a = (uint16_t)(last_y - next_y) / (next_x - last_x);
+					temp = (last_y - (sum - last_x) * a + 512/2) >> 9;
+				}
+				break;
+			}
+		}
+
+	}
+#endif
+	duration = get_tick() - duration;
 
 	ADC1_SQR1 = ADC_SQR1_DMAOFF | ADC_SQR1_CHSEL_SVREFINT;
 

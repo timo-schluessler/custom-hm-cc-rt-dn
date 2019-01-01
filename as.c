@@ -32,6 +32,10 @@ void encode(uint8_t len, uint8_t *buf)
 #ifndef BOOTLOADER
 #define FLASH_START 0x8000
 
+bool as_ok = false;
+uint8_t as_valve_value;
+uint16_t as_sleep_value;
+
 static uint8_t as_cnt = 0;
 
 static bool as_config_start(uint8_t channel, uint8_t list);
@@ -45,7 +49,7 @@ bool as_send(as_packet_t * packet)
 {
 	bool ok = false;
 
-	//spi_enable();
+	//spi_enable(); // TODO put this into si4430.c radio_xxx functions?
 	for (int try = 0; try < 3; try++) {
 		uint16_t timeout_at;
 

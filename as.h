@@ -21,6 +21,12 @@ typedef union {
 	uint8_t data[];
 } as_packet_t;
 
+#ifndef BOOTLOADER
+extern bool as_ok;
+extern uint8_t as_valve_value;
+extern uint16_t as_sleep_value;
+#endif
+
 #define AS_FLAG_DEF 0x80
 #define AS_FLAG_BIDI 0x20
 
