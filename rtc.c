@@ -5,6 +5,8 @@
 
 #include "stm8l.h"
 
+bool rtc_caused_wakeup = true;
+
 void rtc_init()
 {
 	// enable clock for rtc
@@ -39,6 +41,8 @@ void rtc_sleep(uint16_t seconds)
 	CLK_PCKENR2 &= ~CLK_PCKENR2_LCD; // disable LCD clock
 	CLK_PCKENR1 &= ~CLK_PCKENR1_TIM2; // disable TIM2 clock
 
+	rtc_caused_wakeup = false; // if not our interrupt wakes us up, it was someone else
+
 	__asm__ ("halt\n");
 	//while (!(RTC_ISR2 & RTC_ISR2_WUTF))
 	//	;
@@ -55,5 +59,6 @@ void rtc_sleep(uint16_t seconds)
 void rtc_isr() __interrupt(4)
 {
 	RTC_ISR2 = (uint8_t)~RTC_ISR2_WUTF; // reset WUTF flag
+	rtc_caused_wakeup = true;
 }
 

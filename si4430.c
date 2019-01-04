@@ -89,6 +89,8 @@ void radio_init()
 
 	WFE_CR2 |= WFE_CR2_EXTI_EV4; // nIQR is PB4 which is by default mapped to EXTI4
 	PB_CR2 |= (1u<<4); // PB4 external interrupt enabled
+
+	spi_disable();
 }
 
 void radio_deinit()

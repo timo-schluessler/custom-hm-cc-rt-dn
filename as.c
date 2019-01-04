@@ -36,20 +36,38 @@ bool as_ok = false;
 uint8_t as_valve_value;
 uint16_t as_sleep_value;
 
+static bool finished;
+static void as_send_status();
+
+void as_poll()
+{
+	spi_enable();
+	finished = false;
+	as_ok = false;
+
+	if (ID_IS_NULL(hm_master_id))
+		as_send_device_info();
+	else
+		as_send_status();
+	
+	as_listen();
+	spi_disable();
+}
+
 static uint8_t as_cnt = 0;
 
 static bool as_config_start(uint8_t channel, uint8_t list);
 static bool as_config_write(uint8_t channel, uint8_t length, uint8_t * data);
 static bool as_config_end(uint8_t channel);
+static void as_handle_packet(as_packet_t * packet);
 
-#define MAX_ACK_LENGTH 10
+#define MAX_ACK_LENGTH 14 // ACKStatus is 9 + 1 + 4
 
 static as_packet_t ack_packet;
 bool as_send(as_packet_t * packet)
 {
 	bool ok = false;
 
-	//spi_enable(); // TODO put this into si4430.c radio_xxx functions?
 	for (int try = 0; try < 3; try++) {
 		uint16_t timeout_at;
 
@@ -83,6 +101,8 @@ bool as_send(as_packet_t * packet)
 				continue; // answer to wrong/another message
 			if (ack_packet.type != 0x02)
 				continue; // not an ack packet
+			if (ack_packet.length >= AS_HEADER_SIZE + 1 && ack_packet.payload[0] == 0x01) // ACKStatus
+				as_handle_packet(&ack_packet);
 
 			ok = true;
 			break;
@@ -90,8 +110,6 @@ bool as_send(as_packet_t * packet)
 		if (ok)
 			break;
 	}
-
-	//spi_disable();
 
 	return ok;
 }
@@ -112,6 +130,23 @@ void as_send_device_info()
 	as_send(&dev_info);
 }
 
+static void as_send_status()
+{
+	as_packet_t status = { .length = AS_HEADER_SIZE + 6, .counter = as_cnt++, .flags = AS_FLAG_DEF, .type = 0x41,
+	                       .from = { LIST_ID(hm_id) }, .to = { LIST_ID(hm_master_id) },
+	                       .payload = {
+										 wanted_heat,
+										 temp & 0xff, temp >> 8,
+										 motor_percent,
+										 motor_error,
+										 battery_voltage
+	                     }};
+	if (!ID_IS_NULL(hm_master_id))
+		status.flags |= AS_FLAG_BIDI;
+
+	as_send(&status);
+}
+
 #define CONFIG_START_LENGTH 16
 #define CONFIG_WRITE_LENGTH 60
 #define CONFIG_END_LENGTH 11
@@ -119,13 +154,10 @@ void as_send_device_info()
 
 void as_listen()
 {
-	uint16_t timeout_at = get_tick() + 5000;
+	uint16_t timeout_at = get_tick() + 2000;
 
-	spi_enable();
-	while (!tick_elapsed(timeout_at)) {
-		bool ack = false;
+	while (!finished && !tick_elapsed(timeout_at)) {
 		as_packet_t packet;
-		bool enter_bootloader = false;
 
 		radio_enter_receive(MAX_LENGTH);
 		if (!radio_wait(timeout_at))
@@ -150,39 +182,62 @@ void as_listen()
 		}
 		as_cnt++;
 
-		if (packet.type == 0x01 && packet.length >= AS_HEADER_SIZE + 2 && packet.payload[1] == 0x05)
-			ack = as_config_start(packet.payload[0], packet.payload[6]); // packet.payload[2-5] is peer id if configuring peer config
-		else if (packet.type == 0x01 && packet.length >= AS_HEADER_SIZE + 2 && packet.payload[1] == 0x08)
-			ack = as_config_write(packet.payload[0], packet.length - AS_HEADER_SIZE - 2, packet.payload + 2);
-		else if (packet.type == 0x01 && packet.length >= AS_HEADER_SIZE + 2 && packet.payload[1] == 0x06)
-			ack = as_config_end(packet.payload[0]);
-		else if (packet.type == 0x11 && packet.length >= AS_HEADER_SIZE + 1 && packet.payload[0] == 0xca) { // enter bootloader
-			enter_bootloader = true;
-			ack = true;
-		}
-		
-		// conf readback
-		// send current data -> recieve valve position and sleep duration
-
-
-		if (packet.flags & AS_FLAG_BIDI) { // send answer
-			as_packet_t dev_info = { .length = 10, .counter = packet.counter, .flags = AS_FLAG_DEF, .type = 0x02,
-											 .from = { LIST_ID(hm_id) }, .to = { LIST_ID(packet.from) },
-											 .payload = {
-												 ack ? 0x00 : 0x80
-										  }};
-			as_send(&dev_info);
-		}
-
-		if (enter_bootloader) {
-			disable_interrupts();
-			main_deinit();
-			RST_SR = 0xff; // reset all reset sources to signal bootloader that we jumped into it
-			__asm
-			jpf	[FLASH_START + 1] // jump far because bootloader is in upper memory region
-			__endasm;
-		}
+		as_handle_packet(&packet);
+		timeout_at = get_tick() + 1000;
 	}
+}
+
+static void as_handle_packet(as_packet_t * packet)
+{
+	bool enter_bootloader = false;
+	bool ack = false;
+
+	if (packet->type == 0x01 && packet->length >= AS_HEADER_SIZE + 2 && packet->payload[1] == 0x05)
+		ack = as_config_start(packet->payload[0], packet->payload[6]); // packet->payload[2-5] is peer id if configuring peer config
+	else if (packet->type == 0x01 && packet->length >= AS_HEADER_SIZE + 2 && packet->payload[1] == 0x08)
+		ack = as_config_write(packet->payload[0], packet->length - AS_HEADER_SIZE - 2, packet->payload + 2);
+	else if (packet->type == 0x01 && packet->length >= AS_HEADER_SIZE + 2 && packet->payload[1] == 0x06)
+		ack = as_config_end(packet->payload[0]);
+	else if (packet->type == 0x11 && packet->length >= AS_HEADER_SIZE + 1 && packet->payload[0] == 0xca) { // enter bootloader
+		enter_bootloader = true;
+		ack = true;
+	}
+	else if (packet->type == 0x41 && packet->length >= AS_HEADER_SIZE + 4 ||
+	         packet->type == 0x02 && packet->length >= AS_HEADER_SIZE + 1 + 4 && packet->payload[0] == 0x01) {
+		uint8_t * data = packet->payload;
+		if (packet->type == 0x02)
+			data++;
+		as_valve_value = data[0];
+		as_sleep_value = data[1] | ((uint16_t)data[2] << 8);
+		if (data[3] != 0xff) {
+			wanted_heat = data[3];
+			ui_update();
+		}
+
+		finished = true;
+		as_ok = true;
+	}
+	
+	// TODO conf readback
+
+	if (packet->flags & AS_FLAG_BIDI) { // send answer
+		as_packet_t dev_info = { .length = 10, .counter = packet->counter, .flags = AS_FLAG_DEF, .type = 0x02,
+										 .from = { LIST_ID(hm_id) }, .to = { LIST_ID(packet->from) },
+										 .payload = {
+											 ack ? 0x00 : 0x80
+									  }};
+		as_send(&dev_info);
+	}
+
+	if (enter_bootloader) {
+		disable_interrupts();
+		main_deinit();
+		RST_SR = 0xff; // reset all reset sources to signal bootloader that we jumped into it
+		__asm
+		jpf	[FLASH_START + 1] // jump far because bootloader is in upper memory region
+		__endasm;
+	}
+
 }
 
 struct {
@@ -218,6 +273,8 @@ bool as_config_write(uint8_t channel, uint8_t length, uint8_t * data)
 				((uint8_t*)hm_master_id)[1] = data[i + 1];
 			else if (data[i] == 0x0c)
 				((uint8_t*)hm_master_id)[2] = data[i + 1];
+			else if (data[i] == 0x0d)
+				*min_battery_voltage = data[i + 1];
 			else
 				continue; // don't wait for write completion
 		} else

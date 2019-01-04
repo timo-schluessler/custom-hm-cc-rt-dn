@@ -50,20 +50,22 @@ void ui_wait()
 
 void ui_update()
 {
-	uint8_t cur_wheel = wheel; // only read this once
-	wanted_heat += (int8_t)(cur_wheel - last_wheel);
-	last_wheel = cur_wheel;
-	if (wanted_heat > 128)
-		wanted_heat = 0;
-	else if (wanted_heat > 50)
-		wanted_heat = 50;
-
 	LCD_CR3 |= LCD_CR3_SOFIE | LCD_CR3_SOFC; // enable lcd interrupt and clear flag to update ui on next sync
 }
 
 void lcd_sync_interrupt() __interrupt(16)
 {
 	LCD_CR3 &= ~LCD_CR3_SOFIE; // redisable interrupt
+
+	{
+		uint8_t cur_wheel = wheel; // only read this once
+		wanted_heat += (int8_t)(cur_wheel - last_wheel) << 1;
+		last_wheel = cur_wheel;
+		if (wanted_heat > 128)
+			wanted_heat = 0;
+		else if (wanted_heat > 50)
+			wanted_heat = 50;
+	}
 
 	{
 		uint16_t value;
@@ -87,6 +89,8 @@ void lcd_sync_interrupt() __interrupt(16)
 
 		display_decimal(LCD_TIME_1, value, 4, 3);
 	}
+
+	lcd_set_seg(LCD_SEG_BATTERY, battery_voltage < *min_battery_voltage);
 }
 
 void display_decimal(uint8_t first_seg, uint16_t value, uint8_t digits, uint8_t base_digit)

@@ -93,8 +93,6 @@ void main()
 	motor_init();
 	rtc_init();
 	radio_init();
-	spi_disable(); // TODO do this in as_poll
-	//radio_enter_receive(14);
 	ui_init();
 
 	enable_interrupts();
@@ -106,7 +104,13 @@ void main()
 		ui_update();
 		ui_wait_until = get_tick() + UI_WAIT; // atomic write to wait_until?
 
-		//as_poll(); --> as_send_status(); or send_device_info (if no master) as_listen();
+		// in case we woke up by user action we first wait if there is more action
+		if (!rtc_caused_wakeup) {
+			ui_wait();
+			enable_interrupts();
+		}
+
+		as_poll();
 
 		if (as_ok)
 			motor_move_to(as_valve_value);

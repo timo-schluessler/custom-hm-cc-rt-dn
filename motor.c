@@ -45,17 +45,27 @@ void motor_init()
 #define MEAN_COUNT 12
 #define VALVE_START_THRESHOLD 15
 
-motor_position_t motor_max_pos;
-bool motor_error;
+#define MEAN2_COUNT 4
+#define MEAN2_SHIFT 2
+#define MEAN2_THRESHOLD 10
+#define MEAN2_HOLD 4
 
-//uint8_t mem[1400];
-//uint16_t mem_in = 0;
+motor_position_t motor_max_pos;
+uint8_t motor_error;
+
+uint8_t mem[1400];
+uint16_t mem_in = 0;
 
 void motor_ref()
 {
 	uint16_t lowest;
 	uint16_t mean_start;
 	uint8_t mean_count;
+	uint16_t mean2_start = 0;
+	uint8_t mean2_count = 0;
+	uint16_t mean2 = 0;
+	enum { searching_start, searching_flat, searching_end } state;
+	uint8_t state_counter = 0;
 	uint8_t start_count;
 	uint16_t now;
 	uint16_t timeout;
@@ -86,7 +96,7 @@ void motor_ref()
 				timeout2 += 30000;
 			else {
 				motor_stop = true;
-				motor_error = true;
+				motor_error = 1;
 			}
 		}
 		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
@@ -120,24 +130,28 @@ void motor_ref()
 	mean_start = now;
 	mean_count = MEAN_COUNT;
 	lowest = UINT16_MAX;
+	state = searching_start;
 	while (true) {
 		now = get_tick();
-		if (tick_elapsed(now, timeout))
+		if (tick_elapsed(now, timeout)) {
 			motor_stop = true;
+			lcd_set_digit(LCD_TIME_1, 0xA);
+		}
 		if (tick_elapsed(now, timeout2)) { // overall timeout
 			if (timeouts++ == 0)
 				timeout2 += 30000;
 			else {
 				motor_stop = true;
-				motor_error = true;
+				lcd_set_digit(LCD_TIME_1, 0xB);
+				motor_error = 2;
 			}
 		}
 		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
 			last = !last;
 			if (!last) { // only use falling edges (when sensor is on reflective part of counter wheel)
 				uint16_t diff;
-				//diff = now - timeout + 2 * MAX_STALL_THRESHOLD;
-				//mem[mem_in++] = diff & 0xff;
+				diff = now - timeout + 2 * MAX_STALL_THRESHOLD;
+				mem[mem_in++] = diff & 0xff;
 				motor_position++;
 				timeout = now + 2 * MAX_STALL_THRESHOLD;
 				if (start_count) {
@@ -145,15 +159,45 @@ void motor_ref()
 					timeout += 2 * BREAK_FREE_MARGIN;
 				}
 				if (--mean_count == 0) {
-					mean_count = MEAN_COUNT;
 					diff = now - mean_start;
 					mean_start = now;
-					if (diff < lowest)
-						lowest = diff;
-					if (diff < lowest + VALVE_START_THRESHOLD)
-						motor_position = 0;
-					else if (motor_position == MEAN_COUNT)
-						lcd_set_digit(LCD_TIME_1, 0xF);
+					mean_count = MEAN_COUNT;
+					if (state == searching_start) {
+						if (diff < lowest)
+							lowest = diff;
+						if (diff < lowest + VALVE_START_THRESHOLD)
+							motor_position = 0;
+						else {
+							lcd_set_digit(LCD_TIME_1, 0x1);
+							state = searching_flat;
+							mean2_start = now;
+							mean2_count = MEAN2_COUNT;
+							mean2 = 0;
+						}
+					} else {
+						if (state == searching_flat) {
+							if (mean2 == 0 || diff - mean2 >= MEAN2_THRESHOLD)
+								state_counter = 0;
+							else if (++state_counter == MEAN2_HOLD) {
+								lcd_set_digit(LCD_TIME_1, 0x2);
+								state = searching_end;
+								state_counter = 0;
+							}
+						} else { // searching_end
+							if (diff - mean2 < MEAN2_THRESHOLD)
+								state_counter = 0;
+							else if (++state_counter == MEAN2_HOLD) { // we found the end
+								lcd_set_digit(LCD_TIME_1, 0x3);
+								motor_stop = true;
+							}
+						}
+
+						if (--mean2_count == 0) {
+							mean2 = (now - mean2_start) >> MEAN2_SHIFT;
+							mean2_start = now;
+							mean2_count = MEAN2_COUNT;
+						}
+					}
 				}
 			}
 		}
@@ -168,6 +212,7 @@ void motor_ref()
 	lcd_sync();
 	lcd_set_digit(LCD_DEG_3, 2);
 
+#if 0
 	{
 		motor_position_t tmp = motor_position;
 		lcd_set_digit(LCD_TIME_4, tmp % 10);
@@ -179,8 +224,11 @@ void motor_ref()
 		lcd_set_digit(LCD_TIME_1, tmp % 10);
 		tmp /= 10;
 	}
+#endif
 
 	DISABLE_ENCODER();
+
+	delay_ms(1000);
 }
 
 // move motor to have a valve opening of percent percent
@@ -202,10 +250,13 @@ void motor_move_to(uint8_t percent)
 	motor_percent = percent;
 	ui_update();
 
+#ifdef REF_ON_MOVE_ZERO
 	if (percent == 0) { // move until stop
 		threshold = 2 * MAX_STALL_THRESHOLD;
 		pos = INT16_MAX;
-	} else {
+	} else
+#endif
+	{
 		// a * b / c
 		// a * (b1 * 256 + b2) / c
 		// (a * b1 * 256 + a * b2) / c
@@ -242,8 +293,10 @@ void motor_move_to(uint8_t percent)
 		now = get_tick();
 		if (tick_elapsed(now, timeout)) {
 			motor_stop = true;
+#ifdef REF_ON_MOVE_ZERO
 			if (percent != 0) // only error if we were not moving to 0% (on block)
 				motor_error = true;
+#endif
 		}
 		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
 			last = !last;
@@ -263,10 +316,12 @@ void motor_move_to(uint8_t percent)
 		if (motor_run(now))
 			break;
 	}
+#ifdef REF_ON_MOVE_ZERO
 	if (percent == 0) { // remember newly found max_pos
 		motor_max_pos = motor_position;
 		// TODO check for too low motor max position and generate error
 	}
+#endif
 
 	DISABLE_ENCODER();
 }

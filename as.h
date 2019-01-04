@@ -6,6 +6,7 @@
 const uint8_t * hm_id = EEPROM_START; // 3 byte
 const uint8_t * hm_serial = EEPROM_START + 3; // 10 byte
 const uint8_t * hm_master_id = EEPROM_START + 13; // 3 byte
+uint8_t * const min_battery_voltage = EEPROM_START + 16; // 1 byte
 
 typedef union {
 	struct {
@@ -35,6 +36,7 @@ extern uint16_t as_sleep_value;
 #define LIST_ID(a) (a)[0], (a)[1], (a)[2]
 #define LIST_SERIAL(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5], (a)[6], (a)[7], (a)[8], (a)[9]
 
+void as_poll();
 void as_send_device_info();
 void as_listen();
 
