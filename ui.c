@@ -50,12 +50,12 @@ void ui_wait()
 
 void ui_update()
 {
-	LCD_CR3 |= LCD_CR3_SOFIE | LCD_CR3_SOFC; // enable lcd interrupt and clear flag to update ui on next sync
+	lcd_enable_sync_interrupt();
 }
 
 void lcd_sync_interrupt() __interrupt(16)
 {
-	LCD_CR3 &= ~LCD_CR3_SOFIE; // redisable interrupt
+	lcd_disable_sync_interrupt();
 
 	{
 		uint8_t cur_wheel = wheel; // only read this once

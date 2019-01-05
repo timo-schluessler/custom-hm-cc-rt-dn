@@ -19,4 +19,13 @@ void lcd_set_digit(uint8_t digit, uint8_t value);
 void lcd_clear();
 void lcd_sync();
 
+inline void lcd_enable_sync_interrupt()
+{
+	LCD_CR3 |= LCD_CR3_SOFIE | LCD_CR3_SOFC; // enable lcd interrupt and clear flag to update ui on next sync
+}
+inline void lcd_disable_sync_interrupt()
+{
+	LCD_CR3 &= ~LCD_CR3_SOFIE; // disable lcd interrupt
+}
+
 #endif

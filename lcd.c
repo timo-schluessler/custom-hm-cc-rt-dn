@@ -136,3 +136,4 @@ void lcd_sync()
 	while (!(LCD_CR3 & LCD_CR3_SOF))
 		;
 }
+

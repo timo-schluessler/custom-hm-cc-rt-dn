@@ -50,6 +50,8 @@ lcd_t lcd_data = { 0 };
 void main()
 {
 	disable_interrupts();
+	for (uint8_t * i = (uint8_t*)(0x622 + 0xd4); i <= 0xfff; i++)
+		*i = 0x55;
 
 	// low speed external clock prevents debugger from working :(
 #ifdef USE_LSE

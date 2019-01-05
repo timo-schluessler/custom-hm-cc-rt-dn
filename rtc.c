@@ -35,6 +35,7 @@ void rtc_sleep(uint16_t seconds)
 	RTC_WUTRL = seconds & 0xff;
 	RTC_CR2 = RTC_CR2_WUTIE | RTC_CR2_WUTE; // enable wake up timer and interrupt
 
+	lcd_disable_sync_interrupt(); // in case anyone requested this before
 	lcd_clear();
 	lcd_sync(); // wait until the cleared content is actually written
 	LCD_CR3 &= ~LCD_CR3_LCDEN;
