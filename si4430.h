@@ -33,6 +33,8 @@
 #define SI4430_FFCLRRX (1u<<1)
 #define SI4430_FFCLRTX (1u<<0)
 
+#define SI4430_GPIOCONF0 0xb
+#define SI4430_GPIOCONF1 0xc
 #define SI4430_GPIOCONF2 0xd
 #define SI4430_RSSITH 0x27
 #define SI4430_PKLEN 0x3e

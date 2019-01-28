@@ -46,6 +46,7 @@ uint8_t start_address[3];
 
 static inline void start_main()
 {
+	spi_disable();
 	radio_deinit();
 	tick_deinit();
 
@@ -140,6 +141,8 @@ void my_main()
 	lcd_init();
 
 	copy_functions_to_ram();
+
+	spi_enable();
 
 	{
 		uint8_t i = 0;

@@ -39,9 +39,9 @@ uint8_t stati_in = 0;
 static enum { radio_idle, radio_receiving, radio_sending } radio_state;
 
 // originally i wanted this to be static inside radio_init. but sdcc has a problem with that ("relocation error")
-CONSTMEM uint8_t reg_1d_25[] = { 0x3C, 0x02, 0x03, 0x90, 0x20, 0x51, 0xDC, 0x00, 0x58 };
-CONSTMEM uint8_t reg_32_39[] = { 0x00, 0x0e, 0x08, 0x22, 0xE9, 0xCA, 0xE9, 0xCA };
-CONSTMEM uint8_t reg_6e_77[] = { 0x51, 0xDC, 0x2c, 0x22, 0x1E, 0x00, 0x00, 0x73, 0x67, 0x9F };
+CONSTMEM uint8_t reg_1c_25[] = { 0x1E, 0x40, 0x0a, 0x03, 0xC8, 0x00, 0xA3, 0xD7, 0x00, 0xAE };
+CONSTMEM uint8_t reg_33_39[] = { 0x0e, 0x08, 0x2A, 0xE9, 0xCA, 0xE9, 0xCA };
+CONSTMEM uint8_t reg_6d_77[] = { 0x1F, 0x51, 0xEC, 0x2c, 0x22, 0x1E, 0x00, 0x00, 0x73, 0x67, 0xC0 };
 void radio_init()
 {
 	spi_init();
@@ -62,21 +62,25 @@ void radio_init()
 	while (!(read_reg(SI4430_STATUS2) & SI4430_CHIPRDY))
 			;
 
+	write_reg(SI4430_GPIOCONF0, 0x1f); // set GPIO2 to GND output (instead of default CLK output!)
+	write_reg(SI4430_GPIOCONF1, 0x1f); // set GPIO2 to GND output (instead of default CLK output!)
 	write_reg(SI4430_GPIOCONF2, 0x1f); // set GPIO2 to GND output (instead of default CLK output!)
 
 	// write all settings from Si443x-Register-Settings.ods
-	write_burst(0x1d, sizeof(reg_1d_25), reg_1d_25);
-	write_reg(SI4430_RSSITH, 100);
-	write_reg(0x2a, 0xff);
+	// no - write all registers as eq3 does it. the values below were observed using the real firmware
+	write_burst(0x1c, sizeof(reg_1c_25), reg_1c_25);
+	write_reg(SI4430_RSSITH, 80);
+	write_reg(0x2a, 0x28);
 
-	write_reg(0x30, 0x89); // TODO disable crc check
-	write_burst(0x32, sizeof(reg_32_39), reg_32_39);
+	write_reg(0x30, 0x89);
+	write_burst(0x33, sizeof(reg_33_39), reg_33_39);
 
-	write_reg(0x3e, 0x3d);
-	write_reg(0x58, 0x80);
+	write_reg(0x58, 0x80); // what are these registers for?
+	write_reg(0x59, 0x40);
+
 	write_reg(0x69, 0x60);
 	
-	write_burst(0x6e, sizeof(reg_6e_77), reg_6e_77);
+	write_burst(0x6d, sizeof(reg_6d_77), reg_6d_77);
 
 	// TODO we could also enable almost full interrupt and readout the length byte as soon as possible (almost full threshold = 0)
 	// TODO then with the length information we could update the almost full threshold and when it triggers again readout the packet
@@ -100,13 +104,13 @@ void radio_deinit()
 }
 
 // originally i wanted this to be static inside radio_switch_100k. but sdcc has a problem with that ("relocation error")
-CONSTMEM uint8_t reg_1c_25[] = { 0x9A, 0x44, 0x0A, 0x03, 0x3C, 0x02, 0x22, 0x22, 0x07, 0xFF };
+CONSTMEM uint8_t reg_1c_25_100k[] = { 0x9A, 0x44, 0x0A, 0x03, 0x3C, 0x02, 0x22, 0x22, 0x07, 0xFF };
 CONSTMEM uint8_t reg_6e_72[] = { 0x19, 0x9A, 0x0C, 0x22, 0x4C };
 void radio_switch_100k()
 {
 
 	// write all changed settings from Si443x-Register-Settings-100k.ods
-	write_burst(0x1c, sizeof(reg_1c_25), reg_1c_25);
+	write_burst(0x1c, sizeof(reg_1c_25_100k), reg_1c_25_100k);
 	write_reg(0x2a, 0x48);
 	write_reg(0x58, 0xC0);
 	write_burst(0x6e, sizeof(reg_6e_72), reg_6e_72);
