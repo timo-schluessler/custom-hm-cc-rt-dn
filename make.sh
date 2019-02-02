@@ -12,7 +12,7 @@ if [ $? -ne 0 ]; then
 fi
 #sdcc -mstm8 --out-fmt-elf --debug --opt-code-size --all-callee-saves --verbose --stack-auto --no-peep -o main.elf main.c lcd.rel time.rel
 
-../install/bin/stm8-objcopy -j HOME -j GSINIT -j GSFINAL -j CODE -j INITIALIZER -I elf32-stm8 main.elf -O ihex main.ihx
+../install/bin/stm8-objcopy -j HOME -j GSINIT -j GSFINAL -j CONST -j INITIALIZER -j CODE -I elf32-stm8 main.elf -O ihex main.ihx
 ../install/bin/stm8-objcopy -I ihex main.ihx -O binary main.bin
 
 OFFSET=0x8000

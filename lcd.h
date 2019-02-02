@@ -13,6 +13,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "stm8l.h"
+
 void lcd_init();
 void lcd_set_seg(uint8_t seg, bool set);
 void lcd_set_digit(uint8_t digit, uint8_t value);

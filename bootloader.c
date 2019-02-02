@@ -49,6 +49,7 @@ static inline void start_main()
 	spi_disable();
 	radio_deinit();
 	tick_deinit();
+	lcd_clear();
 
 	__asm
 	ldw	x, #RAM_END
@@ -161,11 +162,11 @@ void my_main()
 			lcd_sync();
 			lcd_set_digit(LCD_DEG_1, 0);
 
-			if (receive_cb(get_tick() + 1500))
+			if (receive_cb(get_tick() + 2000))
 				break;
 
 			if (++i == 3) {
-				if (app_crc_ok()) // we either have been called by main app or the buttons were pressed
+				if (app_crc_ok() && !reset) // we have been called by main app -> timeout (in case the buttons have been pressed, loop infinite)
 					start_main();
 				else {
 					set_timeout(get_tick() + 5000);
@@ -185,7 +186,7 @@ void my_main()
 	lcd_sync();
 	lcd_set_digit(LCD_DEG_1, 2);
 
-	if (!receive_cb(get_tick() + 1000))
+	if (!receive_cb(get_tick() + 2500))
 		restart();
 
 	{
@@ -222,6 +223,7 @@ void my_main()
 			popw	X
 			__endasm;
 
+			debug(block);
 			send_response(&packet, true);
 			block++;
 			expected_counter++;
@@ -257,7 +259,6 @@ void my_main()
 
 }
 
-uint8_t send_response_cnt = 0;
 void send_response(as_packet_t * recvd, bool ack)
 {
 	as_packet_t answer = { .length = 10, .counter = recvd->counter, .flags = AS_FLAG_DEF, .type = 0x02, .from = { LIST_ID(hm_id) }, .to = { LIST_ID(recvd->from) }, .payload = { ack ? MSG_RESPONSE_ACK : MSG_RESPONSE_NACK } };
@@ -265,7 +266,6 @@ void send_response(as_packet_t * recvd, bool ack)
 	if (ack && !(recvd->flags & 0x20)) // no ACK required
 		return;
 
-	debug(++send_response_cnt);
 	radio_send(&answer);
 	if (!radio_wait(get_tick() + 1000))
 		__asm__("break\n");
@@ -273,22 +273,34 @@ void send_response(as_packet_t * recvd, bool ack)
 	
 bool receive_cb(uint16_t timeout_at)
 {
+	uint8_t step = 0;
 	while (!tick_elapsed(timeout_at)) {
+		lcd_sync();
+		lcd_set_digit(LCD_DEG_3, step & 0xf);
 		radio_enter_receive(15);
 		if (!radio_wait(timeout_at))
 			return false;
 	
+		step = 1;
 		if (!radio_receive(&packet, 15))
 			continue; // if crc check fails, continue receiving
 
+		step = 2;
 		if (CMP_ID(packet.to, hm_id) != 0)
 			continue; // not for us
 
+		step = 3;
 		if (packet.type != 0xCB) {
+			delay_ms(10);
 			send_response(&packet, false); // nack
+			debug(packet.type);
 			continue; // no "call bootloader" cmd
 		}
 
+		// seems we need to waste some time here. otherwise the master doesn't receive our answer
+		step = 4;
+		lcd_sync();
+		lcd_set_digit(LCD_DEG_3, step & 0xf);
 		send_response(&packet, true);
 		return true;
 	}
@@ -329,7 +341,8 @@ bool receive_block(uint16_t timeout_at, uint8_t * expected_counter)
 			continue; // not for us
 		}
 		if (packet.type != 0xca) {
-			if (packet.type == 0xcb && block == 0) {
+			if (packet.type == 0xcb && block == 0) { // in case the master didn't receive our ack from receive_cb
+				delay_ms(10); // seems we should waste some time to give the master a chance to receive this answer
 				send_response(&packet, true);
 				DEBUG(LCD_DEG_2, (wrong_answer_nr++) & 0xf);
 			}

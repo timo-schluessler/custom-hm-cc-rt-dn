@@ -6,7 +6,9 @@
 const uint8_t * hm_id = EEPROM_START; // 3 byte
 const uint8_t * hm_serial = EEPROM_START + 3; // 10 byte
 const uint8_t * hm_master_id = EEPROM_START + 13; // 3 byte
+#ifndef BOOTLOADER // the following line is not optimized but treated as a real pointer. but in bootloader we can't use CONST code segment (because of needed far addressing mode which is unsupported by sdcc)
 uint8_t * const min_battery_voltage = EEPROM_START + 16; // 1 byte
+#endif
 
 typedef union {
 	struct {
