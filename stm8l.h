@@ -378,6 +378,9 @@
 #define TIMx_IER_CC1IE (1u<<1)
 #define TIMx_SR1_CC1IF (1u<<1)
 
+#define TIM_CCMRx_OCxM 4
+#define TIM_CCMRx_CCxS 0
+
 
 /* *** SPI *** */
 #define SPI1_CR1 (*(__IO uint8_t*)0x5200)

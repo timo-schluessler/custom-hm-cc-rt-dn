@@ -6,11 +6,11 @@ uint8_t motor_percent;
 int8_t motor_dir = BACKWARD;
 bool motor_stop = false;
 
-bool motor_run(uint16_t now);
+bool motor_run(uint16_t now, bool pulsed);
 
-#define MOTOR_LEFT_HIGH (1u<<4) // PD4
+#define MOTOR_LEFT_HIGH (1u<<4) // PD4 - TIM1_CH2
 #define MOTOR_LEFT_LOW (1u<<6) // PD6
-#define MOTOR_RIGHT_HIGH (1u<<5) // PD5
+#define MOTOR_RIGHT_HIGH (1u<<5) // PD5 - TIM1_CH3
 #define MOTOR_RIGHT_LOW (1u<<7) // PD7
 #define MOTORS_MASK (MOTOR_LEFT_HIGH | MOTOR_LEFT_LOW | MOTOR_RIGHT_HIGH | MOTOR_RIGHT_LOW)
 
@@ -36,8 +36,8 @@ void motor_init()
 #define ENABLE_ENCODER() do { MOTOR_ENC_PORT_CR1 |= MOTOR_ENC; MOTOR_LED_PORT_ODR |= MOTOR_LED; } while(false);
 #define DISABLE_ENCODER() do { MOTOR_ENC_PORT_CR1 &= ~MOTOR_ENC; MOTOR_LED_PORT_ODR &= ~MOTOR_LED; } while(false);
 
-#define REF_STALL_THRESHOLD 25
-#define MAX_STALL_THRESHOLD 25
+#define REF_STALL_THRESHOLD 400
+#define MAX_STALL_THRESHOLD 400
 #define MOVE_STALL_THRESHOLD 40
 #define BREAK_FREE_MARGIN 100
 #define START_PULSES 3 // the first rotation may take BREAK_FREE_MARGIN of additional time
@@ -72,6 +72,7 @@ void motor_ref()
 	uint16_t timeout2;
 	uint8_t timeouts;
 	bool last;
+	uint16_t last_t;
 
 	ENABLE_ENCODER();
 	motor_error = false;
@@ -83,11 +84,12 @@ void motor_ref()
 	motor_dir = BACKWARD;
 	start_count = START_PULSES - 1;
 	now = get_tick();
-	timeout = now + REF_STALL_THRESHOLD + BREAK_FREE_MARGIN;
+	timeout = now + REF_STALL_THRESHOLD;
 	timeout2 = now + 30000;
 	timeouts = 0;
 	last = (bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC);
 	while (true) {
+		bool pulsed = false;
 		now = get_tick();
 		if (tick_elapsed(now, timeout))
 			motor_stop = true;
@@ -100,14 +102,11 @@ void motor_ref()
 			}
 		}
 		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
+			pulsed = true;
 			last = !last;
 			timeout = now + REF_STALL_THRESHOLD;
-			if (start_count) {
-				start_count--;
-				timeout += BREAK_FREE_MARGIN;
-			}
 		}
-		if (motor_run(now))
+		if (motor_run(now, pulsed))
 			break;
 	}
 	if (motor_error) {
@@ -122,9 +121,8 @@ void motor_ref()
 	// turn forward
 	motor_dir = FORWARD;
 	motor_position = 0;
-	start_count = START_PULSES - 1;
 	now = get_tick();
-	timeout = now + 2 * MAX_STALL_THRESHOLD + 2 * BREAK_FREE_MARGIN;
+	timeout = now + MAX_STALL_THRESHOLD;
 	timeout2 = now + 30000;
 	timeouts = 0; // timeout can't go beyond/near 65535/2. so use this counter
 	mean_start = now;
@@ -132,9 +130,11 @@ void motor_ref()
 	lowest = UINT16_MAX;
 	state = searching_start;
 	while (true) {
+		bool pulsed = false;
 		now = get_tick();
 		if (tick_elapsed(now, timeout)) {
 			motor_stop = true;
+			motor_error = 2;
 			lcd_set_digit(LCD_TIME_1, 0xA);
 		}
 		if (tick_elapsed(now, timeout2)) { // overall timeout
@@ -143,21 +143,18 @@ void motor_ref()
 			else {
 				motor_stop = true;
 				lcd_set_digit(LCD_TIME_1, 0xB);
-				motor_error = 2;
+				motor_error = 3;
 			}
 		}
 		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
+			pulsed = true;
 			last = !last;
+			timeout = now + MAX_STALL_THRESHOLD;
 			if (!last) { // only use falling edges (when sensor is on reflective part of counter wheel)
 				uint16_t diff;
-				diff = now - timeout + 2 * MAX_STALL_THRESHOLD;
+				diff = now - last_t;
 				mem[mem_in++] = diff & 0xff;
 				motor_position++;
-				timeout = now + 2 * MAX_STALL_THRESHOLD;
-				if (start_count) {
-					start_count--;
-					timeout += 2 * BREAK_FREE_MARGIN;
-				}
 				if (--mean_count == 0) {
 					diff = now - mean_start;
 					mean_start = now;
@@ -203,7 +200,7 @@ void motor_ref()
 		}
 		if ((PF_IDR & BUTTON_LEFT) == 0)
 			motor_stop = true;
-		if (motor_run(now))
+		if (motor_run(now, pulsed))
 			break;
 	}
 	motor_max_pos = motor_position;
@@ -290,15 +287,17 @@ void motor_move_to(uint8_t percent)
 	last = (bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC);
 	timeout = now + threshold + 2 * BREAK_FREE_MARGIN;
 	while (true) {
+		bool pulsed = false;
 		now = get_tick();
 		if (tick_elapsed(now, timeout)) {
 			motor_stop = true;
 #ifdef REF_ON_MOVE_ZERO
 			if (percent != 0) // only error if we were not moving to 0% (on block)
-				motor_error = true;
 #endif
+				motor_error = true;
 		}
 		if ((bool)(MOTOR_ENC_PORT_IDR & MOTOR_ENC) != last) {
+			pulsed = true;
 			last = !last;
 			if (!last) { // only use falling edges (when sensor is on reflective part of counter wheel)
 				motor_position += motor_dir;
@@ -313,7 +312,7 @@ void motor_move_to(uint8_t percent)
 		}
 		if ((PF_IDR & BUTTON_LEFT) == 0)
 			motor_stop = true;
-		if (motor_run(now))
+		if (motor_run(now, pulsed))
 			break;
 	}
 #ifdef REF_ON_MOVE_ZERO
@@ -329,7 +328,7 @@ void motor_move_to(uint8_t percent)
 #define OFF 0
 #define LOW 1
 #define HIGH 2
-void set_motor(int8_t left, int8_t right)
+static void set_motor(int8_t left, int8_t right)
 {
 	uint8_t odr = PD_ODR & ~MOTORS_MASK;
 
@@ -350,42 +349,102 @@ void set_motor(int8_t left, int8_t right)
 	PD_ODR = odr;
 }
 
+static void setup_timer()
+{
+	uint16_t duty;
+
+	CLK_PCKENR1 |= CLK_PCKENR1_TIM1;
+	TIM1_CR1 = TIM_CR1_DIR; // down-counter, not yet enabled
+	TIM1_CNTRH = 0; // set counter to zero, so when enabling pwm mode the output will be active
+	TIM1_CNTRL = 0
+	// TODO do we need UG to force an update of all registers? i think not because we don't preload any register...
+	duty = 800 - ((battery_voltage - 20) * 19 + (battery_voltage - 20 + 1) >> 1); // see motor-duty.ods. values captured of eq3 firmware
+	if (motor_dir == FORWARD) {
+		TIM1_CCR2H = duty >> 8;
+		TIM1_CCR2L = duty & 0xff;
+		TIM1_CCMR2 = (0b110 << TIM_CCMR_OCxM); // channel is output in pwm mode 1
+		TIM1_CCER1 = TIM_CCER1_CC2P | TIM_CCER1_CC2E;
+	}
+	else {
+		TIM1_CCR3H = duty >> 8;
+		TIM1_CCR3L = duty & 0xff;
+		TIM1_CCMR3 = (0b110 << TIM_CCMR_OCxM); // channel is output in pwm mode 1
+		TIM1_CCER2 = TIM_CCER2_CC3P | TIM_CCER2_CC3E;
+	}
+	duty += 20; // set CCR1 to a 2% higher duty, so we can safely stop the timer before the output is enabled for the next pulse
+	TIM1_CCR1H = duty >> 8;
+	TIM1_CCR1L = duty & 0xff;
+	TIM1_ARRH = 0x3; // 0x3e7 = 999 = 2ms period
+	TIM1_ARRL = 0xe7;
+}
+
+static void disable_timer()
+{
+	TIM1_CR1 = 0; // disable counter
+	TIM1_CCER1 = 0; // disable output compare
+	TIM1_CCER2 = 0; // disable output compare
+	TIM1_CCMR2 = 0; // set output mode to frozen. this way the change to pwm mode 1
+	TIM1_CCMR3 = 0; // for the next move will update the output immediately
+	// TODO is this true/neccessary even in pwm mode? or is OC1REF always/asynchronously updated?
+	CLK_PCKENR1 &= ~CLK_PCKENR1_TIM1;
+}
+
+
 uint16_t motor_timeout;
-enum { Idle, Turn, CrossOver, Recirculate, Stop } motor_state = Idle;
-bool motor_run(uint16_t tick)
+uint16_t motor_steady_timeout;
+bool timer_output_active;
+enum { Idle, TurnSteady, TurnPWM, CrossOver, Short, Stop } motor_state = Idle;
+bool motor_run(uint16_t tick, bool pulsed)
 {
 	// don't check tick for this state because it may have overflowed (several times)!
 	if (motor_state == Idle) {
-		motor_state = Turn;
+		motor_state = TurnSteady;
 		motor_timeout = tick + 5; // run for at least 5ms
+		motor_steady_timeout = tick + 200; // run with full power for 200ms
+		setup_timer(); // this already enables the high side transistor!
 		if (motor_dir == FORWARD)
-			set_motor(HIGH, LOW);
+			set_motor(OFF, LOW); // don't set one output high here, this is handled by the timer.
 		else
-			set_motor(LOW, HIGH);
+			set_motor(LOW, OFF); // when disabling the timer, the high side transistor should be immediately off
 
 		return false;
 	}
 
-	if (!tick_elapsed(tick, motor_timeout))
+	if (!tick_elapsed(tick, motor_timeout)) {
+		if (motor_state == Short && pulsed) // stay in Short until there are no more pulses for at least 50ms
+			motor_timeout = now + 50;
 		return false;
+	}
 	
-	if (motor_state == Turn) {
-		if (motor_stop) {
+	if (motor_state == TurnSteady) {
+		if (tick_elapsed(tick, motor_steady_timeout) || motor_stop) {
+			motor_state = TurnPWM;
+			TIM1_CR1 |= TIM_CR1_CEN; // enable timer
+			timer_output_active = true; // it was true, but when this variable is set the timer has overflowed and so the output is inactive
+		} else
+			return false;
+	}
+	if (motor_state == TurnPWM) {
+		uint8_t flags = TIM1_SR1; // from here to disable_timer() below should elapse no more than 20 clocks! TODO
+		if (flags & TIM_SR1_UIF) // first check UIF because we don't clear the flags before starting the timer. so for the first time both flags may be set but the UIF flag is the most recently set one
+			timer_output_active = false;
+		else if (flags & TIM_SR1_CC1F)
+			timer_output_active = true;
+		TIM1_SR1 = ~flags; // clear all (read) flags
+
+		if (motor_stop && !timer_output_active) {
+			disable_timer();
 			motor_state = CrossOver;
-			motor_timeout = tick + 5;
-			if (motor_dir == FORWARD)
-				set_motor(OFF, LOW);
-			else
-				set_motor(LOW, OFF);
+			motor_timeout = tick + 1;
 		} else
 			motor_timeout = tick; // to not let it overflow
 	}
 	else if (motor_state == CrossOver) {
+		motor_state = Short;
 		set_motor(LOW, LOW);
-		motor_state = Recirculate;
-		motor_timeout = tick + 20;
+		motor_timeout = tick + 50;
 	}
-	else if (motor_state == Recirculate) {
+	else if (motor_state == Short) {
 		motor_state = Stop;
 		set_motor(OFF, OFF);
 		motor_timeout = tick + 10; // 10ms before turning on again

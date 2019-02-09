@@ -75,7 +75,7 @@ void main()
 	CLK_ECKCR |= CLK_ECKCR_LSEON;
 	while (!(CLK_ECKCR & CLK_ECKCR_LSERDY))
 		;
-	// f_sysclk = 16MHz / 128 = 500kHz // must be higher than 320kHz for ADC1!
+	// f_sysclk = 16MHz / 32 = 500kHz // must be higher than 320kHz for ADC1!
 #endif
 
 	// configure RTC clock
